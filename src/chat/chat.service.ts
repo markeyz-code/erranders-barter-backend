@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Chat, ChatDocument } from './schemas/chat.schema';
@@ -36,6 +36,28 @@ export class ChatService {
       .populate('lastMessage')
       .sort({ updatedAt: -1 })
       .exec();
+  }
+
+  /**
+   * Is `userId` one of this chat's participants?
+   *
+   * Chat had NO authorisation at all: any authenticated user could read any
+   * conversation by id, and the socket gateway let them join any room and post
+   * into it. Every read and write now goes through this.
+   */
+  async assertParticipant(chatId: string, userId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(chatId)) {
+      // Callers validate first, but never let a malformed id reach the query.
+      throw new ForbiddenException('You are not a participant in this chat');
+    }
+    const isParticipant = await this.chatModel
+      .exists({ _id: chatId, participants: userId })
+      .exec();
+    if (!isParticipant) {
+      // Deliberately the same message whether the chat is missing or simply not
+      // theirs, so the response cannot be used to enumerate chat ids.
+      throw new ForbiddenException('You are not a participant in this chat');
+    }
   }
 
   async getMessages(chatId: string) {

@@ -43,8 +43,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleDisconnect(socket: Socket) {}
 
   @SubscribeMessage('joinChat')
-  handleJoinChat(@MessageBody() data: { chatId: string }, @ConnectedSocket() socket: Socket) {
-    socket.join(data.chatId);
+  async handleJoinChat(@MessageBody() data: { chatId: string }, @ConnectedSocket() socket: Socket) {
+    // Socket rooms were completely open: any connected client could join any
+    // chatId and receive its live messages. Membership is now required, and a
+    // refusal is reported to the caller rather than silently ignored.
+    const userId = socket.data.userId;
+    if (!userId) return;
+    try {
+      await this.chatService.assertParticipant(data.chatId, userId);
+      socket.join(data.chatId);
+    } catch {
+      socket.emit('chatError', { chatId: data.chatId, message: 'You are not a participant in this chat' });
+    }
   }
 
   @SubscribeMessage('sendMessage')
@@ -54,6 +64,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = socket.data.userId;
     if (!userId) return;
+
+    // Without this, any authenticated socket could post into any conversation.
+    try {
+      await this.chatService.assertParticipant(data.chatId, userId);
+    } catch {
+      socket.emit('chatError', { chatId: data.chatId, message: 'You are not a participant in this chat' });
+      return;
+    }
 
     const message = await this.chatService.saveMessage(
       data.chatId,

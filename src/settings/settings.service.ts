@@ -7,9 +7,19 @@ import { Setting } from './schemas/setting.schema';
 export class SettingsService implements OnModuleInit {
   constructor(@InjectModel(Setting.name) private settingModel: Model<Setting>) {}
 
+  /**
+   * Observable platform configuration. These are not sample records: they are the
+   * operational defaults every deployment needs, and an admin can change each one.
+   * Fees default to zero so the app never invents a charge; promoted listings stay
+   * switched off until an admin sets a real price.
+   */
   async onModuleInit() {
     const defaultSettings = [
-      { key: 'base_errander_fee', value: 500 }
+      { key: 'base_errander_fee', value: 500 },
+      { key: 'escrow_fee_percentage', value: 0 },
+      { key: 'seller_commission_percentage', value: 0 },
+      { key: 'errander_commission_percentage', value: 0 },
+      { key: 'promoted_listing_fee', value: 0 },
     ];
     for (const s of defaultSettings) {
       const exists = await this.settingModel.findOne({ key: s.key });

@@ -1,18 +1,28 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Transaction, TransactionStatus } from './schemas/transaction.schema';
 import { SettingsService } from '../settings/settings.service';
 import { UsersService } from '../users/users.service';
+import { LogisticsService } from '../logistics/logistics.service';
 import { Item } from '../items/schemas/item.schema';
 
 @Injectable()
 export class EscrowService {
+  private readonly logger = new Logger(EscrowService.name);
+
   constructor(
     @InjectModel(Transaction.name) private txModel: Model<Transaction>,
     @InjectModel(Item.name) private itemModel: Model<Item>,
     private settingsService: SettingsService,
     private usersService: UsersService,
+    private logisticsService: LogisticsService,
   ) {}
 
   async initiate(dto: { buyerId: string; sellerId: string; itemId: string; amount: number; deliveryMethod?: string; deliveryAddress?: string; paymentReference?: string; deliveryFee?: number }): Promise<Transaction> {
@@ -21,11 +31,30 @@ export class EscrowService {
 
     let deliveryFee = 0;
     if (dto.deliveryMethod === 'errander') {
-      deliveryFee = dto.deliveryFee || 500;
+      if (dto.deliveryFee !== undefined && dto.deliveryFee !== null) {
+        deliveryFee = Number(dto.deliveryFee);
+        if (Number.isNaN(deliveryFee) || deliveryFee < 0) {
+          throw new BadRequestException('deliveryFee must be a positive number');
+        }
+      } else {
+        // The base fee is platform configuration, never a number invented here.
+        const configuredBaseFee = await this.settingsService.getSetting('base_errander_fee');
+        if (configuredBaseFee === null || configuredBaseFee === undefined) {
+          throw new BadRequestException(
+            'Errander delivery is not priced yet: base_errander_fee is not configured. Ask an admin to set it.',
+          );
+        }
+        deliveryFee = Number(configuredBaseFee);
+      }
     }
 
     const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
-    const escrowFeePerc = escrowFeePercVal ? Number(escrowFeePercVal) : 0;
+    if (escrowFeePercVal === null || escrowFeePercVal === undefined) {
+      throw new BadRequestException(
+        'Escrow is not priced yet: escrow_fee_percentage is not configured. Ask an admin to set it.',
+      );
+    }
+    const escrowFeePerc = Number(escrowFeePercVal);
     
     // We know itemPrice.
     const itemPrice = item.price;
@@ -43,30 +72,30 @@ export class EscrowService {
     });
     const savedTx = await tx.save();
 
-    // Call Erranders Webhook if errander delivery is selected
+    // Hand the delivery to the real logistics service. It persists a dispatch row before
+    // calling the provider, so a failure is recorded as FAILED (with lastError) instead of
+    // being swallowed or reported as a success.
     if (dto.deliveryMethod === 'errander') {
       try {
         const seller = await this.usersService.findById(dto.sellerId);
         const buyer = await this.usersService.findById(dto.buyerId);
-        const apiUrl = process.env.ERRANDERS_API_URL || 'https://api.erranders.org/api/v1';
-        const apiKey = process.env.BARTER_API_KEY || 'barter_secret_123';
-        
-        fetch(`${apiUrl}/orders/webhook/barter`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-          },
-          body: JSON.stringify({
-            pickupLocation: seller?.hostel || 'Seller Location',
-            dropoffLocation: dto.deliveryAddress || buyer?.hostel || 'Buyer Location',
+        await this.logisticsService.dispatchRiderForBarter(
+          seller?.hostel || '',
+          dto.deliveryAddress || buyer?.hostel || '',
+          item.title,
+          {
+            transactionId: savedTx._id.toString(),
+            itemId: item._id.toString(),
+            sellerId: dto.sellerId,
+            buyerId: dto.buyerId,
             fee: deliveryFee,
-            description: `Barter Delivery: ${item.title}`,
-            barterTransactionId: savedTx._id.toString()
-          })
-        }).catch(err => console.error('Failed to dispatch webhook to erranders:', err));
-      } catch (err) {
-        console.error('Error preparing webhook payload:', err);
+          },
+          dto.buyerId,
+        );
+      } catch (err: any) {
+        this.logger.error(
+          `Escrow ${savedTx._id} was created but the delivery dispatch failed: ${err?.message || err}`,
+        );
       }
     }
 
@@ -105,11 +134,9 @@ export class EscrowService {
     const savedTx = await tx.save();
 
     if (tx.erranderOrderId) {
-      const apiUrl = process.env.ERRANDERS_API_URL || 'http://localhost:3005/api/v1';
-      const apiKey = process.env.BARTER_API_KEY || 'btr_sk_live_placeholder';
-
       try {
-        await fetch(`${apiUrl}/orders/webhook/dispute`, {
+        const { apiUrl, apiKey } = this.requireProviderConfig();
+        const response = await fetch(`${apiUrl}/orders/webhook/dispute`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -119,8 +146,15 @@ export class EscrowService {
             orderId: tx.erranderOrderId
           })
         });
-      } catch (e) {
-        console.error('Failed to send dispute webhook to Erranders', e);
+
+        if (!response.ok) {
+          this.logger.error(
+            `Dispute ${tx._id} was recorded, but Erranders rejected the dispute webhook (HTTP ${response.status}).`,
+          );
+        }
+      } catch (e: any) {
+        // The dispute itself is already persisted; only the provider notification failed.
+        this.logger.error(`Dispute ${tx._id} was recorded, but the Erranders webhook failed: ${e?.message || e}`);
       }
     }
 
@@ -162,8 +196,7 @@ export class EscrowService {
     if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can accept negotiations');
     if (!tx.erranderBidId) throw new BadRequestException('No negotiation exists for this transaction');
 
-    const apiUrl = process.env.ERRANDERS_API_URL || 'https://api.erranders.org/api/v1';
-    const apiKey = process.env.BARTER_API_KEY || 'barter_secret_123';
+    const { apiUrl, apiKey } = this.requireProviderConfig();
 
     try {
       // Call Erranders backend to accept the bid
@@ -199,8 +232,7 @@ export class EscrowService {
     if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can negotiate');
     if (!tx.erranderBidId) throw new BadRequestException('No negotiation exists for this transaction');
 
-    const apiUrl = process.env.ERRANDERS_API_URL || 'http://localhost:3005/api/v1';
-    const apiKey = process.env.BARTER_API_KEY || 'btr_sk_live_placeholder';
+    const { apiUrl, apiKey } = this.requireProviderConfig();
 
     try {
       const response = await fetch(`${apiUrl}/orders/webhook/negotiation/counter`, {
@@ -224,8 +256,25 @@ export class EscrowService {
       tx.proposedDeliveryFee = amount;
       return tx.save();
     } catch (err) {
-      console.error(err);
+      this.logger.error(`Could not counter negotiation for ${txId}: ${err?.message || err}`);
       throw new BadRequestException('Could not counter negotiation');
     }
+  }
+
+  /**
+   * The Erranders integration is only usable with a real base URL and API key. There are
+   * deliberately no placeholder credentials: a fake key would produce confusing 401s.
+   */
+  private requireProviderConfig(): { apiUrl: string; apiKey: string } {
+    const apiUrl = (process.env.ERRANDERS_API_URL || '').trim().replace(/\/+$/, '');
+    const apiKey = (process.env.BARTER_API_KEY || '').trim();
+
+    if (!apiUrl || !apiKey) {
+      throw new ServiceUnavailableException(
+        'The Erranders logistics integration is not configured: ERRANDERS_API_URL and BARTER_API_KEY must be set.',
+      );
+    }
+
+    return { apiUrl, apiKey };
   }
 }

@@ -7,7 +7,9 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
-    "start:prod": "node dist/main.js"
+    "start:prod": "node dist/main.js",
+    "seed": "node seed/index.js",
+    "seed:reset": "node seed/index.js --reset"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

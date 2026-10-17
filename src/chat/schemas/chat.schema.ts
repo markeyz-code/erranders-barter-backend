@@ -16,3 +16,5 @@ export class Chat {
 }
 
 export const ChatSchema = SchemaFactory.createForClass(Chat);
+// GET /chats filters on participants and sorts by updatedAt.
+ChatSchema.index({ participants: 1, updatedAt: -1 });

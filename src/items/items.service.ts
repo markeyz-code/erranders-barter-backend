@@ -1,11 +1,32 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Item, ItemStatus } from './schemas/item.schema';
+import { Model, Types } from 'mongoose';
+import { Item, ItemStatus, ItemType } from './schemas/item.schema';
+import { Transaction, TransactionStatus } from '../escrow/schemas/transaction.schema';
+import { Offer, OfferStatus } from '../offers/schemas/offer.schema';
+
+// Fields the owner may change on their own listing. sellerId/isPromoted are deliberately not
+// here — those are platform-controlled.
+const ITEM_UPDATABLE_FIELDS = [
+  'title',
+  'description',
+  'price',
+  'swapPreference',
+  'type',
+  'status',
+  'location',
+  'category',
+  'images',
+  'videos',
+];
 
 @Injectable()
 export class ItemsService {
-  constructor(@InjectModel(Item.name) private itemModel: Model<Item>) {}
+  constructor(
+    @InjectModel(Item.name) private itemModel: Model<Item>,
+    @InjectModel(Transaction.name) private txModel: Model<Transaction>,
+    @InjectModel(Offer.name) private offerModel: Model<Offer>,
+  ) {}
 
   async create(createItemDto: any, userId: string): Promise<Item> {
     const newItem = new this.itemModel({ ...createItemDto, sellerId: userId });
@@ -36,6 +57,10 @@ export class ItemsService {
   }
 
   async findOne(id: string): Promise<Item> {
+    // `findById` throws a CastError (HTTP 500) on a non-ObjectId, so a typed URL
+    // took the endpoint down instead of returning a clean 404. PATCH/DELETE in
+    // this service already guarded; this was the odd one out.
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Item not found');
     const item = await this.itemModel.findById(id).populate('sellerId', 'firstName lastName hostel level rating isVerified avatar totalTrades').exec();
     if (!item) throw new NotFoundException('Item not found');
     return item;
@@ -43,5 +68,78 @@ export class ItemsService {
 
   async findMyListings(userId: string): Promise<Item[]> {
     return this.itemModel.find({ sellerId: userId }).sort({ createdAt: -1 }).exec();
+  }
+
+  /** Owner-only edit of a listing. */
+  async update(id: string, userId: string, data: any): Promise<Item> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Item not found');
+    const item = await this.itemModel.findById(id).exec();
+    if (!item) throw new NotFoundException('Item not found');
+    this.assertOwner(item, userId);
+
+    const safeUpdate: any = {};
+    for (const field of ITEM_UPDATABLE_FIELDS) {
+      if (data && data[field] !== undefined) safeUpdate[field] = data[field];
+    }
+    if (Object.keys(safeUpdate).length === 0) {
+      throw new BadRequestException(`No updatable fields provided. Allowed: ${ITEM_UPDATABLE_FIELDS.join(', ')}`);
+    }
+
+    if (safeUpdate.type !== undefined && !Object.values(ItemType).includes(safeUpdate.type)) {
+      throw new BadRequestException(`Invalid type. Allowed: ${Object.values(ItemType).join(', ')}`);
+    }
+    if (safeUpdate.status !== undefined && !Object.values(ItemStatus).includes(safeUpdate.status)) {
+      throw new BadRequestException(`Invalid status. Allowed: ${Object.values(ItemStatus).join(', ')}`);
+    }
+    if (safeUpdate.price !== undefined) {
+      const price = Number(safeUpdate.price);
+      if (Number.isNaN(price) || price < 0) throw new BadRequestException('price must be a positive number');
+      safeUpdate.price = price;
+    }
+
+    return this.itemModel.findByIdAndUpdate(id, safeUpdate, { new: true }).exec();
+  }
+
+  /** Owner-only delete. Refuses to orphan a trade that is currently in flight. */
+  async remove(id: string, userId: string) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Item not found');
+    const item = await this.itemModel.findById(id).exec();
+    if (!item) throw new NotFoundException('Item not found');
+    this.assertOwner(item, userId);
+
+    // Money is held for this item, so the trade must be resolved before the listing disappears.
+    const activeEscrow = await this.txModel.exists({
+      itemId: id,
+      status: TransactionStatus.HELD_IN_ESCROW,
+    });
+    if (activeEscrow) {
+      throw new BadRequestException('This item is part of an active escrow trade and cannot be deleted. Release or dispute the transaction first.');
+    }
+
+    // offers.service marks both items as pending once an offer is accepted.
+    if (item.status === ItemStatus.PENDING) {
+      throw new BadRequestException('This item is part of an accepted trade and cannot be deleted.');
+    }
+
+    // Any other pending offers would point at a listing that no longer exists.
+    const declined = await this.offerModel.updateMany(
+      { status: OfferStatus.PENDING, $or: [{ targetItemId: id }, { offeredItemId: id }] },
+      { status: OfferStatus.DECLINED },
+    ).exec();
+
+    await this.itemModel.findByIdAndDelete(id).exec();
+
+    return {
+      success: true,
+      deleted: true,
+      itemId: id,
+      declinedOffers: declined.modifiedCount || 0,
+    };
+  }
+
+  private assertOwner(item: Item, userId: string): void {
+    if (item.sellerId?.toString() !== userId) {
+      throw new ForbiddenException('You can only manage your own listing');
+    }
   }
 }

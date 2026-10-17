@@ -1,4 +1,4 @@
-import { Controller, Post, UseInterceptors, UploadedFile, UseGuards } from '@nestjs/common';
+import { Controller, Post, Query, UseInterceptors, UploadedFile, UseGuards, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -25,5 +25,30 @@ export class UploadController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadVideo(@UploadedFile() file: Express.Multer.File) {
     return this.uploadService.uploadFile(file, 'video');
+  }
+
+  @Post()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a file with ?resourceType=image|video|raw|audio' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadByResourceType(
+    @UploadedFile() file: Express.Multer.File,
+    @Query('resourceType') resourceType?: string,
+  ) {
+    const requested = (resourceType || 'image').toLowerCase();
+
+    switch (requested) {
+      case 'image':
+        return this.uploadService.uploadFile(file, 'image');
+      case 'video':
+        return this.uploadService.uploadFile(file, 'video');
+      case 'raw':
+        return this.uploadService.uploadFile(file, 'raw');
+      // Cloudinary has no audio resource type, so voice notes are uploaded as video assets.
+      case 'audio':
+        return this.uploadService.uploadFile(file, 'video', 'barter/audio');
+      default:
+        throw new BadRequestException(`Invalid resourceType "${resourceType}". Allowed: image, video, raw, audio`);
+    }
   }
 }

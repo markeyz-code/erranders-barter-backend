@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ItemsService } from './items.service';
@@ -34,5 +34,21 @@ export class ItemsController {
   @ApiOperation({ summary: 'List current user active listings' })
   async findMyListings(@Req() req) {
     return this.itemsService.findMyListings(req.user.userId);
+  }
+
+  @Patch(':id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update your own listing' })
+  async update(@Param('id') id: string, @Body() body: any, @Req() req) {
+    return this.itemsService.update(id, req.user.userId, body);
+  }
+
+  @Delete(':id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete your own listing (blocked while it is in an active trade)' })
+  async remove(@Param('id') id: string, @Req() req) {
+    return this.itemsService.remove(id, req.user.userId);
   }
 }

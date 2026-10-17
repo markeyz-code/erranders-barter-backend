@@ -25,3 +25,5 @@ export class Message {
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
+// GET /chats/:chatId/messages filters by chatId and sorts by createdAt.
+MessageSchema.index({ chatId: 1, createdAt: 1 });

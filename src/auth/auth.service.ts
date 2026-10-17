@@ -1,12 +1,24 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  ServiceUnavailableException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 
+const PASSWORD_RESET_MESSAGE =
+  'If an account exists for that email, a password reset link has been sent.';
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -64,15 +76,99 @@ export class AuthService {
     }
   }
 
+  /**
+   * Issues a real, single-use, expiring reset token. The response is deliberately the same
+   * whether or not the email exists, so the route cannot be used to enumerate accounts.
+   */
   async forgotPassword(email: string) {
-    const user = await this.usersService.findByEmail(email);
-    if (!user) return { message: 'If email exists, a reset link was sent.' };
-    return { message: 'If email exists, a reset link was sent.' };
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!cleanEmail) throw new BadRequestException('email is required');
+
+    const user = await this.usersService.findByEmail(cleanEmail);
+    if (!user) return { message: PASSWORD_RESET_MESSAGE };
+
+    const frontendUrl = (process.env.FRONTEND_URL || '').trim();
+    if (!frontendUrl) {
+      throw new ServiceUnavailableException(
+        'Password reset is not configured: FRONTEND_URL is not set.',
+      );
+    }
+
+    const token = await this.usersService.createPasswordResetToken(user._id.toString());
+    const resetUrl = `${frontendUrl.replace(/\/+$/, '')}/reset-password?token=${encodeURIComponent(token)}`;
+
+    await this.sendPasswordResetEmail(user.email, resetUrl);
+
+    return { message: PASSWORD_RESET_MESSAGE };
   }
 
   async resetPassword(dto: { token: string; password: string }) {
-    // Basic mock logic, assuming real system verifies token.
+    const token = typeof dto?.token === 'string' ? dto.token.trim() : '';
+    const password = typeof dto?.password === 'string' ? dto.password : '';
+
+    if (!token) throw new BadRequestException('A reset token is required');
+    if (password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters long');
+    }
+
+    const reset = await this.usersService.resetPasswordWithToken(token, password);
+    if (!reset) {
+      throw new BadRequestException('This reset link is invalid or has expired. Request a new one.');
+    }
+
     return { message: 'Password has been reset successfully.' };
+  }
+
+  /**
+   * Sends the reset link through the configured transactional email HTTP API. This is a
+   * real provider call: when it is not configured or rejects the request the endpoint
+   * fails loudly instead of telling the user an email went out.
+   */
+  private async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
+    const apiUrl = (process.env.EMAIL_API_URL || '').trim();
+    const apiKey = (process.env.EMAIL_API_KEY || '').trim();
+    const from = (process.env.EMAIL_FROM || '').trim();
+
+    if (!apiUrl || !apiKey || !from) {
+      this.logger.error(
+        'Password reset email was not sent: EMAIL_API_URL, EMAIL_API_KEY and EMAIL_FROM must all be set.',
+      );
+      throw new ServiceUnavailableException(
+        'Password reset email is not configured. Set EMAIL_API_URL, EMAIL_API_KEY and EMAIL_FROM.',
+      );
+    }
+
+    const appName = process.env.APP_NAME || 'Erranders Barter';
+    let response: Response;
+    try {
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          from,
+          to,
+          subject: `Reset your ${appName} password`,
+          text: `Use this link to reset your password (valid for 1 hour): ${resetUrl}`,
+          html: `<p>Use the link below to reset your ${appName} password. It expires in 1 hour.</p><p><a href="${resetUrl}">Reset password</a></p><p>If you did not request this, you can ignore this email.</p>`,
+        }),
+      });
+    } catch (err) {
+      this.logger.error(`Could not reach the email provider: ${err.message}`);
+      throw new ServiceUnavailableException(
+        'The password reset email could not be sent. Please try again later.',
+      );
+    }
+
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 300);
+      this.logger.error(`Email provider rejected the reset email (HTTP ${response.status}): ${detail}`);
+      throw new ServiceUnavailableException(
+        'The password reset email could not be sent. Please try again later.',
+      );
+    }
   }
 
   private generateToken(user: any) {

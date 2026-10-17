@@ -1,6 +1,15 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 
+// Cloudinary only supports image | video | raw. Audio (voice notes) is stored as a video asset.
+export type UploadResourceType = 'image' | 'video' | 'raw';
+
+const FOLDER_BY_TYPE: Record<UploadResourceType, string> = {
+  image: 'barter/images',
+  video: 'barter/videos',
+  raw: 'barter/files',
+};
+
 @Injectable()
 export class UploadService {
   constructor() {
@@ -11,14 +20,18 @@ export class UploadService {
     });
   }
 
-  async uploadFile(file: Express.Multer.File, type: 'image' | 'video'): Promise<{ url: string; publicId: string }> {
+  async uploadFile(
+    file: Express.Multer.File,
+    type: UploadResourceType = 'image',
+    folder?: string,
+  ): Promise<{ url: string; publicId: string }> {
     if (!file) throw new BadRequestException('No file provided');
 
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           resource_type: type,
-          folder: `barter/${type}s`,
+          folder: folder || FOLDER_BY_TYPE[type],
           transformation: type === 'image' ? [{ width: 1200, crop: 'limit', quality: 'auto' }] : undefined,
         },
         (error, result) => {

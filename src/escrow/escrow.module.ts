@@ -6,6 +6,7 @@ import { EscrowWebhookController } from './escrow-webhook.controller';
 import { Transaction, TransactionSchema } from './schemas/transaction.schema';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
+import { LogisticsModule } from '../logistics/logistics.module';
 import { Item, ItemSchema } from '../items/schemas/item.schema';
 
 @Module({
@@ -15,7 +16,8 @@ import { Item, ItemSchema } from '../items/schemas/item.schema';
       { name: Item.name, schema: ItemSchema }
     ]),
     SettingsModule,
-    UsersModule
+    UsersModule,
+    LogisticsModule
   ],
   controllers: [EscrowController, EscrowWebhookController],
   providers: [EscrowService],

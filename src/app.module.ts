@@ -10,6 +10,8 @@ import { SettingsModule } from './settings/settings.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ChatModule } from './chat/chat.module';
 import { OffersModule } from './offers/offers.module';
+import { LogisticsModule } from './logistics/logistics.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { OffersModule } from './offers/offers.module';
     CategoriesModule,
     ChatModule,
     OffersModule,
+    LogisticsModule,
+    PaymentsModule,
   ],
 })
 export class AppModule {}
