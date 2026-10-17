@@ -3,8 +3,9 @@
  * The one and only Barter database seed.
  *
  * This is the ONLY place in the repository that is allowed to contain sample
- * content. Application code never invents users, listings, offers, escrows or
- * messages — it reads them from the API, which reads them from the database.
+ * content. Application code never invents users, listings, offers, escrows,
+ * messages, services, availability windows or bookings — it reads them from the
+ * API, which reads them from the database.
  *
  * Usage (from barter/backend):
  *
@@ -970,7 +971,7 @@ const BOOKINGS = [
     key: 'pending-fade',
     service: 'barber-fade',
     customer: 'buyer',
-    date: { nextWeekday: [1, 2, 3, 4, 5, 6] },
+    date: { nextWeekday: [1, 2, 3, 4, 5] },
     startTime: '10:30',
     status: 'pending',
     notes: 'Low fade, keep the top a little long. I am in Jaja Hall, ground floor.',
