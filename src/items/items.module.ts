@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ItemsService } from './items.service';
 import { ItemsController } from './items.controller';
+import { AdminItemsController } from './admin-items.controller';
 import { Item, ItemSchema } from './schemas/item.schema';
 import { Transaction, TransactionSchema } from '../escrow/schemas/transaction.schema';
 import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
@@ -14,7 +15,7 @@ import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
       { name: Offer.name, schema: OfferSchema },
     ])
   ],
-  controllers: [ItemsController],
+  controllers: [ItemsController, AdminItemsController],
   providers: [ItemsService],
   exports: [ItemsService],
 })

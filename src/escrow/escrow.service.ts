@@ -1,17 +1,20 @@
 import {
+  ConflictException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Transaction, TransactionStatus } from './schemas/transaction.schema';
 import { SettingsService } from '../settings/settings.service';
 import { UsersService } from '../users/users.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { Item } from '../items/schemas/item.schema';
+import { User } from '../users/schemas/user.schema';
 
 @Injectable()
 export class EscrowService {
@@ -20,6 +23,7 @@ export class EscrowService {
   constructor(
     @InjectModel(Transaction.name) private txModel: Model<Transaction>,
     @InjectModel(Item.name) private itemModel: Model<Item>,
+    @InjectModel(User.name) private userModel: Model<User>,
     private settingsService: SettingsService,
     private usersService: UsersService,
     private logisticsService: LogisticsService,
@@ -108,21 +112,32 @@ export class EscrowService {
     if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can release funds');
     if (tx.status !== TransactionStatus.HELD_IN_ESCROW) throw new BadRequestException('Funds already released or disputed');
 
-    // Commission settings
-    const sellerCommVal = await this.settingsService.getSetting('seller_commission_percentage');
-    const sellerCommPerc = sellerCommVal ? Number(sellerCommVal) : 0;
-
-    // Calculate payouts
-    const sellerPayout = tx.itemPrice - ((tx.itemPrice * sellerCommPerc) / 100);
+    const { payout: sellerPayout } = await this.computeSellerPayout(tx);
 
     // Update seller wallet
-    await this.usersService.incrementWalletBalance(tx.sellerId, sellerPayout);
+    if (sellerPayout > 0) {
+      await this.usersService.incrementWalletBalance(tx.sellerId, sellerPayout);
+    }
 
     // If there's an Errander, we would credit their wallet. Currently, Barter doesn't have an errander assignment flow, 
     // but the Errander's payout would be: tx.deliveryFee - ((tx.deliveryFee * erranderCommPerc) / 100).
 
     tx.status = TransactionStatus.RELEASED;
     return tx.save();
+  }
+
+  /** Seller payout and platform commission for a transaction, using the live setting. */
+  private async computeSellerPayout(tx: Transaction) {
+    const sellerCommVal = await this.settingsService.getSetting('seller_commission_percentage');
+    const sellerCommPerc = sellerCommVal ? Number(sellerCommVal) : 0;
+    const itemPrice = Number(tx.itemPrice || 0);
+    const commission = this.roundMoney((itemPrice * sellerCommPerc) / 100);
+    const payout = this.roundMoney(itemPrice - commission);
+    return { payout, commission, percentage: sellerCommPerc };
+  }
+
+  private roundMoney(value: number): number {
+    return Math.round((Number(value) || 0) * 100) / 100;
   }
 
   async dispute(txId: string, userId: string): Promise<Transaction> {
@@ -167,6 +182,223 @@ export class EscrowService {
 
   async findAll(): Promise<Transaction[]> {
     return this.txModel.find().sort({ createdAt: -1 }).exec();
+  }
+
+  /**
+   * Admin escrow list. `buyerId`/`sellerId`/`itemId` are plain string columns in this
+   * schema (not ObjectId refs), so they cannot be populated by Mongoose. The related
+   * documents are looked up explicitly and attached as `buyer`, `seller` and `item` so the
+   * admin screen can resolve names without inventing anything.
+   */
+  async findForAdmin(query: any = {}) {
+    const filter: any = {};
+    if (query.status) {
+      if (!Object.values(TransactionStatus).includes(query.status)) {
+        throw new BadRequestException(
+          `Invalid status. Allowed: ${Object.values(TransactionStatus).join(', ')}`,
+        );
+      }
+      filter.status = query.status;
+    }
+    if (query.search) {
+      // Only ids are searchable without a populate on these string columns.
+      const search = new RegExp(String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ buyerId: search }, { sellerId: search }, { itemId: search }];
+    }
+
+    const limit = Math.min(500, Math.max(1, Number(query.limit) || 200));
+    const transactions = await this.txModel.find(filter).sort({ createdAt: -1 }).limit(limit).lean().exec();
+
+    const userIds = Array.from(
+      new Set(
+        transactions
+          .flatMap((tx) => [tx.buyerId, tx.sellerId])
+          .filter((id) => typeof id === 'string' && Types.ObjectId.isValid(id)),
+      ),
+    );
+    const itemIds = Array.from(
+      new Set(
+        transactions
+          .map((tx) => tx.itemId)
+          .filter((id) => typeof id === 'string' && Types.ObjectId.isValid(id)),
+      ),
+    );
+
+    const [users, items] = await Promise.all([
+      userIds.length
+        ? this.userModel
+            .find({ _id: { $in: userIds } })
+            .select('firstName lastName email avatar isVerified isActive')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+      itemIds.length
+        ? this.itemModel
+            .find({ _id: { $in: itemIds } })
+            .select('title images price location status isActive')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map((user: any) => [user._id.toString(), user]));
+    const itemMap = new Map(items.map((item: any) => [item._id.toString(), item]));
+
+    return transactions.map((tx: any) => ({
+      ...tx,
+      buyer: userMap.get(String(tx.buyerId)) || null,
+      seller: userMap.get(String(tx.sellerId)) || null,
+      item: itemMap.get(String(tx.itemId)) || null,
+      canResolve:
+        tx.status === TransactionStatus.HELD_IN_ESCROW ||
+        tx.status === TransactionStatus.DISPUTED,
+    }));
+  }
+
+  /**
+   * Resolves an escrow dispute as an admin.
+   *
+   * `release` pays the seller their item price minus the configured seller commission
+   * (the same calculation the buyer's release uses). `refund` returns the full amount the
+   * buyer paid to the buyer's Barter wallet, from which they can withdraw it — Barter has
+   * no card-refund integration, so crediting the wallet is the real, auditable refund path.
+   *
+   * Safety: the status transition is an atomic compare-and-set before any wallet is
+   * credited, so two operators (or a double-click) can never both pay out. If the credit
+   * fails the status is reverted and the endpoint returns an error rather than a fake
+   * success.
+   */
+  async resolveDispute(
+    txId: string,
+    resolution: 'release' | 'refund',
+    note: string | undefined,
+    adminUserId: string,
+  ) {
+    if (!Types.ObjectId.isValid(txId)) throw new NotFoundException('Transaction not found');
+    if (resolution !== 'release' && resolution !== 'refund') {
+      throw new BadRequestException("resolution must be 'release' or 'refund'");
+    }
+
+    const cleanNote = typeof note === 'string' ? note.trim().slice(0, 500) : '';
+    const tx = await this.txModel.findById(txId).exec();
+    if (!tx) throw new NotFoundException('Transaction not found');
+
+    const resolvable =
+      tx.status === TransactionStatus.HELD_IN_ESCROW || tx.status === TransactionStatus.DISPUTED;
+    if (!resolvable) {
+      throw new ConflictException(
+        `This transaction is already ${tx.status} and cannot be resolved again.`,
+      );
+    }
+
+    const refundAmount = this.roundMoney(Number(tx.amount || 0));
+    if (resolution === 'refund' && refundAmount <= 0) {
+      throw new BadRequestException(
+        'This transaction has no amount to refund (transaction amount is ₦0).',
+      );
+    }
+
+    const { payout: sellerPayout, commission: sellerCommission } =
+      await this.computeSellerPayout(tx);
+
+    const targetStatus =
+      resolution === 'release' ? TransactionStatus.RELEASED : TransactionStatus.REFUNDED;
+
+    // Claim the transaction atomically. If another request changed it first, this returns
+    // null and we refuse rather than paying twice.
+    const claimed = await this.txModel
+      .findOneAndUpdate(
+        { _id: tx._id, status: tx.status },
+        {
+          $set: {
+            status: targetStatus,
+            resolution,
+            resolutionNote: cleanNote || undefined,
+            resolvedBy: adminUserId,
+            resolvedAt: new Date(),
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!claimed) {
+      throw new ConflictException(
+        'This transaction was resolved by another operator. Refresh and try again.',
+      );
+    }
+
+    let amountMoved = 0;
+    const recipientId = resolution === 'release' ? tx.sellerId : tx.buyerId;
+
+    try {
+      if (resolution === 'release') {
+        if (sellerPayout > 0) {
+          const credited = await this.usersService.incrementWalletBalance(tx.sellerId, sellerPayout);
+          if (!credited) throw new Error('the seller account no longer exists');
+          amountMoved = sellerPayout;
+        }
+        await this.txModel
+          .updateOne(
+            { _id: claimed._id },
+            { $set: { sellerPayout, sellerCommission } },
+          )
+          .exec();
+      } else {
+        const credited = await this.usersService.incrementWalletBalance(tx.buyerId, refundAmount);
+        if (!credited) throw new Error('the buyer account no longer exists');
+        amountMoved = refundAmount;
+        await this.txModel
+          .updateOne({ _id: claimed._id }, { $set: { refundAmount } })
+          .exec();
+      }
+    } catch (error: any) {
+      // No money moved (or the credit threw before committing), so put the transaction
+      // back exactly where it was and report the failure.
+      await this.txModel
+        .updateOne(
+          { _id: claimed._id },
+          {
+            $set: { status: tx.status },
+            $unset: {
+              resolution: 1,
+              resolutionNote: 1,
+              resolvedBy: 1,
+              resolvedAt: 1,
+              sellerPayout: 1,
+              sellerCommission: 1,
+              refundAmount: 1,
+            },
+          },
+        )
+        .exec();
+
+      this.logger.error(
+        `Admin escrow resolution ${txId} (${resolution}) failed and was reverted: ${error?.message || error}`,
+      );
+      throw new InternalServerErrorException(
+        `The transaction was not resolved because the wallet credit failed: ${error?.message || 'unknown error'}. No funds were moved and the status was left unchanged.`,
+      );
+    }
+
+    this.logger.log(
+      `Admin ${adminUserId} resolved escrow ${txId} as ${resolution}: ₦${amountMoved} credited to ${recipientId}. Note: ${cleanNote || 'none'}`,
+    );
+
+    const updated: any = await this.txModel.findById(claimed._id).lean().exec();
+    return {
+      ...updated,
+      resolution,
+      amountMoved,
+      moneyMoved: amountMoved > 0,
+      recipient: resolution === 'release' ? 'seller' : 'buyer',
+      message:
+        resolution === 'release'
+          ? amountMoved > 0
+            ? `Released ₦${amountMoved.toLocaleString('en-NG')} to the seller.`
+            : 'Transaction released. There was no cash payout because the item price is ₦0.'
+          : `Refunded ₦${amountMoved.toLocaleString('en-NG')} to the buyer's wallet.`,
+    };
   }
 
   async handleNegotiationWebhook(payload: { barterTransactionId: string; orderId: string; bidId: string; proposedFee: number }) {

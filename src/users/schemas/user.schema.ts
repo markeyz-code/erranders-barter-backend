@@ -26,6 +26,40 @@ export class BankDetails {
 
 export const BankDetailsSchema = SchemaFactory.createForClass(BankDetails);
 
+/**
+ * Services-marketplace profile. A provider is a normal user with `isServiceProvider` set,
+ * not a separate account and not a role. The counters are maintained by the booking
+ * lifecycle; the profile endpoints never write them.
+ */
+@Schema({ _id: false })
+export class ProviderProfile {
+  @Prop()
+  headline: string;
+
+  @Prop()
+  bio: string;
+
+  @Prop([String])
+  skills: string[];
+
+  @Prop()
+  serviceArea: string;
+
+  @Prop({ default: true })
+  isAcceptingBookings: boolean;
+
+  @Prop({ default: 0 })
+  rating: number;
+
+  @Prop({ default: 0 })
+  totalReviews: number;
+
+  @Prop({ default: 0 })
+  totalBookings: number;
+}
+
+export const ProviderProfileSchema = SchemaFactory.createForClass(ProviderProfile);
+
 @Schema({ timestamps: true })
 export class User extends Document {
   @Prop({ required: true })
@@ -42,6 +76,16 @@ export class User extends Document {
 
   @Prop({ default: false })
   isVerified: boolean;
+
+  // Minimal platform role. `false` is the default so no existing account gains admin
+  // rights; the seed marks the seeded admin account and ADMIN_EMAILS can bootstrap one.
+  @Prop({ default: false })
+  isAdmin: boolean;
+
+  // Suspension flag. Enforced at login and in JwtStrategy, so a suspended account cannot
+  // keep using an already-issued token. Missing/undefined means active (legacy rows).
+  @Prop({ default: true })
+  isActive: boolean;
 
   @Prop()
   googleId: string;
@@ -87,6 +131,13 @@ export class User extends Document {
 
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Item' }], default: [] })
   recentlyViewed: Types.ObjectId[]; // Most-recent-first, de-duplicated, capped at RECENTLY_VIEWED_LIMIT
+
+  // Services marketplace: true once the user has applied as a provider.
+  @Prop({ default: false })
+  isServiceProvider: boolean;
+
+  @Prop({ type: ProviderProfileSchema, required: false })
+  providerProfile?: ProviderProfile;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -30,8 +30,15 @@ const SEED_EMAILS = [
   'buyer@barter.test',
   'swapper@barter.test',
   'admin@barter.test',
+  'barber@barter.test',
+  'tutor@barter.test',
+  'nailtech@barter.test',
+  'photographer@barter.test',
 ];
 const SEED_TX_PREFIX = 'seed-escrow-';
+// Exceptions are re-created on every run because their dates are relative to today; the
+// note prefix is how a previous run's rows are recognised and replaced.
+const SEED_EXCEPTION_PREFIX = 'Seed:';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -121,6 +128,8 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, unique: true, lowercase: true },
     password: { type: String, select: false },
     isVerified: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
     googleId: String,
     whatsappNumber: String,
     university: String,
@@ -132,6 +141,23 @@ const UserSchema = new mongoose.Schema(
     walletBalance: { type: Number, default: 0 },
     fcmToken: String,
     recentlyViewed: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Item' }],
+    // Services marketplace profile (mirrors src/users/schemas/user.schema.ts).
+    isServiceProvider: { type: Boolean, default: false },
+    providerProfile: {
+      type: new mongoose.Schema(
+        {
+          headline: String,
+          bio: String,
+          skills: [String],
+          serviceArea: String,
+          isAcceptingBookings: { type: Boolean, default: true },
+          rating: { type: Number, default: 0 },
+          totalReviews: { type: Number, default: 0 },
+          totalBookings: { type: Number, default: 0 },
+        },
+        { _id: false },
+      ),
+    },
   },
   { timestamps: true },
 );
@@ -154,6 +180,7 @@ const ItemSchema = new mongoose.Schema(
     images: [String],
     videos: [String],
     isPromoted: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
   },
   { timestamps: true },
 );
@@ -227,6 +254,80 @@ const SettingSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// --- Services marketplace (mirrors src/services, src/availability, src/bookings) ---------
+
+const ServiceSchema = new mongoose.Schema(
+  {
+    providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    description: String,
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
+    priceType: { type: String, enum: ['fixed', 'hourly', 'negotiable'], default: 'fixed' },
+    price: { type: Number, default: 0 },
+    durationMinutes: { type: Number, required: true },
+    bufferMinutes: { type: Number, default: 0 },
+    images: [String],
+    location: String,
+    isRemote: { type: Boolean, default: false },
+    tags: [String],
+    isActive: { type: Boolean, default: true },
+    rating: { type: Number, default: 0 },
+    totalBookings: { type: Number, default: 0 },
+  },
+  { timestamps: true },
+);
+
+const ProviderAvailabilitySchema = new mongoose.Schema(
+  {
+    providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    dayOfWeek: { type: Number, required: true, min: 0, max: 6 },
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
+    isActive: { type: Boolean, default: true },
+  },
+  { timestamps: true },
+);
+
+const AvailabilityExceptionSchema = new mongoose.Schema(
+  {
+    providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    date: { type: String, required: true },
+    isBlocked: { type: Boolean, default: false },
+    startTime: String,
+    endTime: String,
+    note: String,
+  },
+  { timestamps: true },
+);
+
+const BookingSchema = new mongoose.Schema(
+  {
+    serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
+    providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    date: { type: String, required: true },
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
+    durationMinutes: { type: Number, required: true },
+    bufferMinutes: { type: Number, default: 0 },
+    amount: { type: Number, default: 0 },
+    status: {
+      type: String,
+      enum: ['pending', 'confirmed', 'completed', 'cancelled', 'declined', 'no_show'],
+      default: 'pending',
+    },
+    notes: String,
+    meetingUrl: String,
+    chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat' },
+    cancelledBy: String,
+    cancellationReason: String,
+    // Internal double-booking guard, same as src/bookings/schemas/booking.schema.ts.
+    blocksSlot: { type: Boolean, default: true },
+    slotKeys: [String],
+  },
+  { timestamps: true },
+);
+
 const User = mongoose.model('User', UserSchema);
 const Item = mongoose.model('Item', ItemSchema);
 const Offer = mongoose.model('Offer', OfferSchema);
@@ -235,6 +336,10 @@ const Chat = mongoose.model('Chat', ChatSchema);
 const Message = mongoose.model('Message', MessageSchema);
 const Category = mongoose.model('Category', CategorySchema);
 const Setting = mongoose.model('Setting', SettingSchema);
+const Service = mongoose.model('Service', ServiceSchema);
+const ProviderAvailability = mongoose.model('ProviderAvailability', ProviderAvailabilitySchema);
+const AvailabilityException = mongoose.model('AvailabilityException', AvailabilityExceptionSchema);
+const Booking = mongoose.model('Booking', BookingSchema);
 
 // ---------------------------------------------------------------------------
 // Dataset
@@ -314,6 +419,8 @@ const USERS = [
     lastName: 'Admin',
     email: 'admin@barter.test',
     isVerified: true,
+    isAdmin: true,
+    isActive: true,
     whatsappNumber: '08090000000',
     university: 'UNILAG',
     hostel: 'Staff Quarters',
@@ -322,6 +429,111 @@ const USERS = [
     totalTrades: 0,
     walletBalance: 0,
     avatar: 'https://ui-avatars.com/api/?name=Barter+Admin&background=0F172A&color=fff',
+  },
+  // --- Service providers: normal users with `isServiceProvider` and a providerProfile -----
+  {
+    key: 'barber',
+    firstName: 'Tunde',
+    lastName: 'Bakare',
+    email: 'barber@barter.test',
+    isVerified: true,
+    whatsappNumber: '08034567890',
+    university: 'UNILAG',
+    hostel: 'Biobaku Hall',
+    level: '400L',
+    rating: 4.8,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Tunde+Bakare&background=0D9488&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'Mobile barber — campus wide',
+      bio: 'Final-year student and licensed barber. I bring my clippers, cape and sanitised kit to your hall. Fades, line-ups, beard shaping and kids cuts — weekdays after lectures and all day Saturday.',
+      skills: ['Fades', 'Beard trims', 'Line-ups', 'Kids cuts'],
+      serviceArea: 'All UNILAG halls, Akoka and Yaba',
+      isAcceptingBookings: true,
+      rating: 4.8,
+      totalReviews: 31,
+      totalBookings: 42,
+    },
+  },
+  {
+    key: 'tutor',
+    firstName: 'Ngozi',
+    lastName: 'Eze',
+    email: 'tutor@barter.test',
+    isVerified: true,
+    whatsappNumber: '08145678901',
+    university: 'UNILAG',
+    hostel: 'Moremi Hall',
+    level: '500L',
+    rating: 4.9,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Ngozi+Eze&background=7C3AED&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'Maths & physics tutor for 100–300 level',
+      bio: 'I tutor MTH101, MTH102, PHY101 and engineering maths. Past questions, worked examples and a study plan you can actually keep up with. Online or in the library.',
+      skills: ['Mathematics', 'Physics', 'Exam prep', 'Past questions'],
+      serviceArea: 'UNILAG library, Moremi Hall and online',
+      isAcceptingBookings: true,
+      rating: 4.9,
+      totalReviews: 48,
+      totalBookings: 63,
+    },
+  },
+  {
+    key: 'nailtech',
+    firstName: 'Blessing',
+    lastName: 'Afolabi',
+    email: 'nailtech@barter.test',
+    isVerified: true,
+    whatsappNumber: '07061234567',
+    university: 'UNILAG',
+    hostel: 'Fagunwa Hall',
+    level: '300L',
+    rating: 4.7,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Blessing+Afolabi&background=DB2777&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'Nail tech — gel, acrylics and spa pedicures',
+      bio: 'Certified nail technician working from my room in Fagunwa. Proper prep, no shortcuts, and a fresh set of tools for every client. Bring inspo or pick from my album.',
+      skills: ['Gel manicure', 'Acrylic nails', 'Spa pedicure', 'Nail art'],
+      serviceArea: 'Fagunwa Hall and nearby hostels',
+      isAcceptingBookings: true,
+      rating: 4.7,
+      totalReviews: 26,
+      totalBookings: 34,
+    },
+  },
+  {
+    key: 'photographer',
+    firstName: 'Kelechi',
+    lastName: 'Obi',
+    email: 'photographer@barter.test',
+    isVerified: true,
+    whatsappNumber: '08178901234',
+    university: 'UNILAG',
+    hostel: 'Jaja Hall',
+    level: '400L',
+    rating: 4.6,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Kelechi+Obi&background=EA580C&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'Portrait & graduation photographer',
+      bio: 'I shoot graduations, matriculation, portraits and small brand content around campus. Edited gallery delivered in 48 hours. Remote retouching and product editing also available.',
+      skills: ['Portrait photography', 'Graduation shoots', 'Photo editing', 'Lightroom'],
+      serviceArea: 'UNILAG campus and Lagos mainland',
+      isAcceptingBookings: true,
+      rating: 4.6,
+      totalReviews: 19,
+      totalBookings: 27,
+    },
   },
 ];
 
@@ -483,6 +695,313 @@ const ITEMS = [
     images: [
       'https://images.unsplash.com/photo-1526509867162-5b0c0d1b4b33?auto=format&fit=crop&q=80&w=800',
     ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Services marketplace dataset
+// ---------------------------------------------------------------------------
+
+// `provider` refers to a USERS key; `category` is a seeded category name.
+const SERVICES = [
+  {
+    key: 'barber-fade',
+    provider: 'barber',
+    title: 'Student Fade Haircut (Mobile)',
+    description:
+      'Clean fade with a sharp line-up, done in your hall or anywhere on campus. I bring clippers, cape, mirror and sanitised tools. Allow 45 minutes including setup and cleanup.',
+    category: 'Beauty & Personal Care',
+    priceType: 'fixed',
+    price: 2500,
+    durationMinutes: 45,
+    bufferMinutes: 15,
+    location: 'Mobile — your hall, UNILAG',
+    isRemote: false,
+    tags: ['barber', 'fade', 'mobile', 'haircut'],
+    images: [
+      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.8,
+    totalBookings: 18,
+  },
+  {
+    key: 'barber-beard',
+    provider: 'barber',
+    title: 'Beard Trim & Line-Up',
+    description:
+      'Shape, trim and line up your beard with a hot towel finish. Add it to a haircut or book it on its own — 30 minutes.',
+    category: 'Beauty & Personal Care',
+    priceType: 'fixed',
+    price: 1500,
+    durationMinutes: 30,
+    bufferMinutes: 10,
+    location: 'Mobile — your hall, UNILAG',
+    isRemote: false,
+    tags: ['barber', 'beard', 'line-up'],
+    images: [
+      'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 9,
+  },
+  {
+    key: 'tutor-maths',
+    provider: 'tutor',
+    title: 'One-on-One Mathematics Tutorial',
+    description:
+      'MTH101, MTH102 or engineering maths, at your pace. We work through past questions and build a revision plan after the first session. Bring your course outline.',
+    category: 'Services',
+    priceType: 'hourly',
+    price: 3000,
+    durationMinutes: 60,
+    bufferMinutes: 5,
+    location: 'UNILAG Main Library',
+    isRemote: false,
+    tags: ['tutor', 'mathematics', 'exam prep', '100 level'],
+    images: [
+      'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.9,
+    totalBookings: 24,
+  },
+  {
+    key: 'tutor-online',
+    provider: 'tutor',
+    title: 'Online Physics Coaching (Video Call)',
+    description:
+      'PHY101/PHY102 coaching over a video call. I share a whiteboard, worked solutions and a recording of the session so you can revise later.',
+    category: 'Services',
+    priceType: 'hourly',
+    price: 3500,
+    durationMinutes: 60,
+    bufferMinutes: 10,
+    location: 'Online',
+    isRemote: true,
+    tags: ['tutor', 'physics', 'online', 'video'],
+    images: [
+      'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.8,
+    totalBookings: 15,
+  },
+  {
+    key: 'nail-gel',
+    provider: 'nailtech',
+    title: 'Gel Manicure with Nail Art',
+    description:
+      'Full prep, cuticle care, gel colour and simple nail art. Fresh tools per client and a lamp cure that actually lasts. Choose your colour when you arrive.',
+    category: 'Beauty & Personal Care',
+    priceType: 'fixed',
+    price: 4000,
+    durationMinutes: 60,
+    bufferMinutes: 15,
+    location: 'Fagunwa Hall, UNILAG',
+    isRemote: false,
+    tags: ['nails', 'gel', 'manicure', 'nail art'],
+    images: [
+      'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 21,
+  },
+  {
+    key: 'nail-pedicure',
+    provider: 'nailtech',
+    title: 'Spa Pedicure',
+    description:
+      'Soak, scrub, callus treatment, massage and polish. A proper reset for your feet after weeks of trekking across campus.',
+    category: 'Beauty & Personal Care',
+    priceType: 'fixed',
+    price: 5000,
+    durationMinutes: 75,
+    bufferMinutes: 15,
+    location: 'Fagunwa Hall, UNILAG',
+    isRemote: false,
+    tags: ['nails', 'pedicure', 'spa'],
+    images: [
+      'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.6,
+    totalBookings: 8,
+  },
+  {
+    key: 'photographer-portrait',
+    provider: 'photographer',
+    title: 'Graduation & Portrait Session',
+    description:
+      'A 90-minute campus shoot with 25 edited photos delivered in 48 hours. I scout two or three locations around UNILAG and bring a reflector and a second lens.',
+    category: 'Services',
+    priceType: 'hourly',
+    price: 8000,
+    durationMinutes: 90,
+    bufferMinutes: 30,
+    location: 'UNILAG campus',
+    isRemote: false,
+    tags: ['photography', 'graduation', 'portrait', 'campus'],
+    images: [
+      'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.6,
+    totalBookings: 12,
+  },
+  {
+    key: 'photographer-editing',
+    provider: 'photographer',
+    title: 'Remote Product Photo Editing',
+    description:
+      'Send raw product or portrait shots and get back clean, colour-corrected images sized for Instagram and for a store listing. Delivered over a shared folder.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 3500,
+    durationMinutes: 60,
+    bufferMinutes: 0,
+    location: 'Online',
+    isRemote: true,
+    tags: ['photo editing', 'lightroom', 'online', 'product photos'],
+    images: [
+      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 6,
+  },
+];
+
+// Weekly windows per provider. dayOfWeek: 0 = Sunday … 6 = Saturday.
+const AVAILABILITY = [
+  {
+    provider: 'barber',
+    windows: [
+      { dayOfWeek: 1, startTime: '09:00', endTime: '13:00' },
+      { dayOfWeek: 1, startTime: '15:00', endTime: '18:00' },
+      { dayOfWeek: 2, startTime: '09:00', endTime: '13:00' },
+      { dayOfWeek: 2, startTime: '15:00', endTime: '18:00' },
+      { dayOfWeek: 3, startTime: '09:00', endTime: '13:00' },
+      { dayOfWeek: 3, startTime: '15:00', endTime: '18:00' },
+      { dayOfWeek: 4, startTime: '09:00', endTime: '13:00' },
+      { dayOfWeek: 4, startTime: '15:00', endTime: '18:00' },
+      { dayOfWeek: 5, startTime: '09:00', endTime: '13:00' },
+      { dayOfWeek: 5, startTime: '15:00', endTime: '18:00' },
+      { dayOfWeek: 6, startTime: '10:00', endTime: '16:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 7,
+        isBlocked: true,
+        note: 'Seed: Campus career fair — no bookings',
+      },
+      {
+        daysFromNow: 3,
+        isBlocked: true,
+        startTime: '12:00',
+        endTime: '14:00',
+        note: 'Seed: Restocking clipper supplies',
+      },
+    ],
+  },
+  {
+    provider: 'tutor',
+    windows: [
+      { dayOfWeek: 1, startTime: '16:00', endTime: '21:00' },
+      { dayOfWeek: 3, startTime: '16:00', endTime: '21:00' },
+      { dayOfWeek: 5, startTime: '16:00', endTime: '21:00' },
+      { dayOfWeek: 6, startTime: '10:00', endTime: '15:00' },
+      { dayOfWeek: 0, startTime: '14:00', endTime: '18:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 5,
+        isBlocked: true,
+        startTime: '18:00',
+        endTime: '19:00',
+        note: 'Seed: Departmental seminar',
+      },
+    ],
+  },
+  {
+    provider: 'nailtech',
+    windows: [
+      { dayOfWeek: 2, startTime: '11:00', endTime: '19:00' },
+      { dayOfWeek: 3, startTime: '11:00', endTime: '19:00' },
+      { dayOfWeek: 4, startTime: '11:00', endTime: '19:00' },
+      { dayOfWeek: 5, startTime: '11:00', endTime: '19:00' },
+      { dayOfWeek: 6, startTime: '11:00', endTime: '19:00' },
+      { dayOfWeek: 0, startTime: '12:00', endTime: '17:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 3,
+        isBlocked: true,
+        startTime: '13:00',
+        endTime: '15:00',
+        note: 'Seed: Supplier delivery',
+      },
+      {
+        daysFromNow: 10,
+        isBlocked: true,
+        note: 'Seed: Travelling home for the weekend',
+      },
+    ],
+  },
+  {
+    provider: 'photographer',
+    windows: [
+      { dayOfWeek: 3, startTime: '10:00', endTime: '18:00' },
+      { dayOfWeek: 4, startTime: '10:00', endTime: '18:00' },
+      { dayOfWeek: 5, startTime: '10:00', endTime: '18:00' },
+      { dayOfWeek: 6, startTime: '10:00', endTime: '18:00' },
+      { dayOfWeek: 0, startTime: '10:00', endTime: '18:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 6,
+        isBlocked: true,
+        startTime: '15:00',
+        endTime: '17:00',
+        note: 'Seed: Equipment servicing',
+      },
+    ],
+  },
+];
+
+// Relative dates keep the demo usable no matter when the seed is run. Bookings are matched
+// on { serviceId, customerId } so re-running updates the same rows instead of duplicating.
+const BOOKINGS = [
+  {
+    key: 'pending-fade',
+    service: 'barber-fade',
+    customer: 'buyer',
+    date: { nextWeekday: [1, 2, 3, 4, 5, 6] },
+    startTime: '10:30',
+    status: 'pending',
+    notes: 'Low fade, keep the top a little long. I am in Jaja Hall, ground floor.',
+  },
+  {
+    key: 'confirmed-online',
+    service: 'tutor-online',
+    customer: 'swapper',
+    date: { nextWeekday: [1, 3, 5] },
+    startTime: '17:00',
+    status: 'confirmed',
+    notes: 'PHY101 past questions — chapters 3 and 4. Please send the whiteboard notes after.',
+    chat: [
+      {
+        sender: 'swapper',
+        content: 'Hi Ngozi, I just booked the online physics session for 5pm. Can we focus on circuits?',
+      },
+      {
+        sender: 'tutor',
+        content: 'No problem. Bring your PHY101 past questions and I will share the whiteboard link before we start.',
+      },
+    ],
+  },
+  {
+    key: 'completed-portrait',
+    service: 'photographer-portrait',
+    customer: 'seller',
+    date: { previousWeekday: [0, 3, 4, 5, 6], daysAgo: 10 },
+    startTime: '11:30',
+    status: 'completed',
+    notes: 'Graduation portraits for me and my sister. Delivered and paid — great session.',
   },
 ];
 
@@ -688,6 +1207,183 @@ async function upsertReferenceData() {
   }
 }
 
+// --- Services marketplace ---------------------------------------------------------------
+
+function formatLocalDate(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function dateFromOffset(daysFromNow) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  return formatLocalDate(date);
+}
+
+function nextWeekdayDate(daysOfWeek, minDaysAhead = 1) {
+  for (let offset = minDaysAhead; offset <= minDaysAhead + 14; offset++) {
+    const candidate = new Date();
+    candidate.setDate(candidate.getDate() + offset);
+    if (daysOfWeek.includes(candidate.getDay())) return formatLocalDate(candidate);
+  }
+  throw new Error(`No matching weekday found for ${daysOfWeek.join(', ')}`);
+}
+
+function previousWeekdayDate(daysOfWeek, minDaysAgo = 7) {
+  for (let offset = minDaysAgo; offset <= minDaysAgo + 14; offset++) {
+    const candidate = new Date();
+    candidate.setDate(candidate.getDate() - offset);
+    if (daysOfWeek.includes(candidate.getDay())) return formatLocalDate(candidate);
+  }
+  throw new Error(`No matching weekday found for ${daysOfWeek.join(', ')}`);
+}
+
+function timeToMinutes(value) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(total) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+}
+
+// Mirrors src/availability/slot-math.ts buildSlotKeys: one key per occupied minute, the
+// buffer included, so seeded rows and API-created rows use the same uniqueness scheme.
+function buildSlotKeys(providerId, date, startTime, durationMinutes, bufferMinutes) {
+  const start = timeToMinutes(startTime);
+  const span = durationMinutes + (bufferMinutes || 0);
+  const keys = [];
+  for (let minute = start; minute < Math.min(start + span, 24 * 60); minute++) {
+    keys.push(`${providerId}:${date}:${minutesToTime(minute)}`);
+  }
+  return keys;
+}
+
+async function upsertServices(users) {
+  const byKey = {};
+
+  for (const service of SERVICES) {
+    const { key, provider, category, ...fields } = service;
+    const providerId = users[provider]._id;
+    const categoryDoc = await Category.findOne({ name: category });
+    if (!categoryDoc) throw new Error(`Seed category "${category}" does not exist`);
+
+    const doc = await Service.findOneAndUpdate(
+      { providerId, title: fields.title },
+      { $set: { ...fields, providerId, category: categoryDoc._id } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    byKey[key] = doc;
+  }
+
+  return byKey;
+}
+
+async function upsertAvailability(users) {
+  for (const entry of AVAILABILITY) {
+    const providerId = users[entry.provider]._id;
+
+    // The windows are fully owned by the seed, so replacing them is the simplest way to stay
+    // in sync with this file. No other provider's rows are touched.
+    await ProviderAvailability.deleteMany({ providerId });
+    if (entry.windows.length) {
+      await ProviderAvailability.insertMany(
+        entry.windows.map((window) => ({ ...window, providerId, isActive: true })),
+      );
+    }
+
+    // Exceptions are dated relative to today, so last run's rows are replaced (matched by the
+    // "Seed:" note prefix) instead of accumulating a new date on every run.
+    await AvailabilityException.deleteMany({
+      providerId,
+      note: { $regex: `^${SEED_EXCEPTION_PREFIX}` },
+    });
+    const exceptions = entry.exceptions.map((exception) => ({
+      providerId,
+      date: dateFromOffset(exception.daysFromNow),
+      isBlocked: exception.isBlocked,
+      note: exception.note,
+      ...(exception.startTime
+        ? { startTime: exception.startTime, endTime: exception.endTime }
+        : {}),
+    }));
+    if (exceptions.length) await AvailabilityException.insertMany(exceptions);
+  }
+}
+
+async function upsertBookings(users, services) {
+  const byKey = {};
+
+  for (const booking of BOOKINGS) {
+    const serviceDoc = services[booking.service];
+    if (!serviceDoc) throw new Error(`Seed service "${booking.service}" does not exist`);
+
+    const customerId = users[booking.customer]._id;
+    const providerId = serviceDoc.providerId;
+    const date = booking.date.nextWeekday
+      ? nextWeekdayDate(booking.date.nextWeekday)
+      : previousWeekdayDate(booking.date.previousWeekday, booking.date.daysAgo);
+
+    const durationMinutes = serviceDoc.durationMinutes;
+    const bufferMinutes = serviceDoc.bufferMinutes || 0;
+    const endTime = minutesToTime(timeToMinutes(booking.startTime) + durationMinutes);
+
+    let chatId;
+    if (booking.chat && booking.chat.length) {
+      const chat = await upsertChat(
+        [customerId, providerId],
+        undefined,
+        booking.chat.map((message) => ({
+          sender: users[message.sender]._id,
+          content: message.content,
+        })),
+      );
+      chatId = chat._id;
+    }
+
+    const doc = await Booking.findOneAndUpdate(
+      // One seeded booking per customer+service: stable even when the date or status changes.
+      { serviceId: serviceDoc._id, customerId },
+      {
+        $set: {
+          serviceId: serviceDoc._id,
+          providerId,
+          customerId,
+          date,
+          startTime: booking.startTime,
+          endTime,
+          durationMinutes,
+          bufferMinutes,
+          amount: serviceDoc.price || 0,
+          status: booking.status,
+          notes: booking.notes,
+          blocksSlot: true,
+          slotKeys: buildSlotKeys(
+            providerId.toString(),
+            date,
+            booking.startTime,
+            durationMinutes,
+            bufferMinutes,
+          ),
+          ...(chatId ? { chatId } : {}),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    // The room is derived from the booking id, exactly like BookingsService.accept does.
+    if (serviceDoc.isRemote && booking.status === 'confirmed') {
+      doc.meetingUrl = `https://meet.jit.si/barter-${doc._id.toString()}`;
+      await doc.save();
+    }
+
+    byKey[booking.key] = doc;
+  }
+
+  return byKey;
+}
+
 async function resetSeedData() {
   const users = await User.find({ email: { $in: SEED_EMAILS } }).select('_id');
   const userIds = users.map((user) => user._id);
@@ -708,13 +1404,21 @@ async function resetSeedData() {
   const transactions = await Transaction.deleteMany({
     paymentReference: { $regex: `^${SEED_TX_PREFIX}` },
   });
+  const bookings = await Booking.deleteMany({
+    $or: [{ providerId: { $in: userIds } }, { customerId: { $in: userIds } }],
+  });
+  const services = await Service.deleteMany({ providerId: { $in: userIds } });
+  const availability = await ProviderAvailability.deleteMany({ providerId: { $in: userIds } });
+  const exceptions = await AvailabilityException.deleteMany({ providerId: { $in: userIds } });
   const items = await Item.deleteMany({ sellerId: { $in: userIds } });
   const deletedUsers = await User.deleteMany({ _id: { $in: userIds } });
 
   console.log(
     `Reset: ${deletedUsers.deletedCount} users, ${items.deletedCount} items, ` +
       `${offers.deletedCount} offers, ${transactions.deletedCount} transactions, ` +
-      `${deletedChats.deletedCount} chats, ${messages.deletedCount} messages.`,
+      `${deletedChats.deletedCount} chats, ${messages.deletedCount} messages, ` +
+      `${services.deletedCount} services, ${bookings.deletedCount} bookings, ` +
+      `${availability.deletedCount} availability windows, ${exceptions.deletedCount} exceptions.`,
   );
 }
 
@@ -739,18 +1443,34 @@ async function main() {
   await upsertOffers(users, items);
   await upsertTransactions(users, items);
   await upsertChats(users, items);
+  const services = await upsertServices(users);
+  await upsertAvailability(users);
+  await upsertBookings(users, services);
 
   console.log('\n✔ Seed complete (idempotent — safe to run again).\n');
   console.log('Demo accounts (all use the same password):');
-  console.log('  Seller  seller@barter.test   / password123');
-  console.log('  Buyer   buyer@barter.test    / password123');
-  console.log('  Swapper swapper@barter.test  / password123');
-  console.log('  Admin   admin@barter.test    / password123');
+  console.log('  Seller   seller@barter.test       / password123');
+  console.log('  Buyer    buyer@barter.test        / password123');
+  console.log('  Swapper  swapper@barter.test      / password123');
+  console.log('  Admin    admin@barter.test        / password123');
+  console.log('\nService provider accounts (all use the same password):');
+  console.log('  Barber       barber@barter.test       / password123');
+  console.log('  Tutor        tutor@barter.test        / password123');
+  console.log('  Nail tech    nailtech@barter.test     / password123');
+  console.log('  Photographer photographer@barter.test / password123');
   console.log('\nSeeded content:');
   console.log(`  ${USERS.length} users, ${ITEMS.length} listings (sell/swap/service),`);
   console.log('  2 pending swap offers, 3 escrows (held / released / disputed),');
   console.log('  2 conversations with real message history, categories and settings.');
-  console.log('\nAdmin sign-in: any seeded account works with the same credentials.\n');
+  console.log(
+    `  ${SERVICES.length} bookable services from 4 providers, ` +
+      `${AVAILABILITY.reduce((total, entry) => total + entry.windows.length, 0)} weekly availability windows,`,
+  );
+  console.log(
+    `  ${AVAILABILITY.reduce((total, entry) => total + entry.exceptions.length, 0)} date exceptions, ` +
+      `${BOOKINGS.length} bookings (pending / confirmed with video room / completed).`,
+  );
+  console.log('\nAdmin sign-in: admin@barter.test has isAdmin set on the account.\n');
 }
 
 main()

@@ -12,6 +12,12 @@ import { ChatModule } from './chat/chat.module';
 import { OffersModule } from './offers/offers.module';
 import { LogisticsModule } from './logistics/logistics.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AdminModule } from './admin/admin.module';
+import { ProvidersModule } from './providers/providers.module';
+import { ServicesModule } from './services/services.module';
+import { AvailabilityModule } from './availability/availability.module';
+import { BookingsModule } from './bookings/bookings.module';
+import { AdminMarketplaceModule } from './admin/admin-marketplace.module';
 
 @Module({
   imports: [
@@ -28,6 +34,13 @@ import { PaymentsModule } from './payments/payments.module';
     OffersModule,
     LogisticsModule,
     PaymentsModule,
+    AdminModule,
+    // Services / skills marketplace.
+    ProvidersModule,
+    ServicesModule,
+    AvailabilityModule,
+    BookingsModule,
+    AdminMarketplaceModule,
   ],
 })
 export class AppModule {}

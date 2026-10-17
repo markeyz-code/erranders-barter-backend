@@ -60,6 +60,119 @@ export class UsersService {
     return this.userModel.find().exec();
   }
 
+  /** Admin user list. Device tokens and password-reset hashes never leave the admin API. */
+  async findAllForAdmin(): Promise<User[]> {
+    return this.userModel
+      .find()
+      .select('-fcmToken -passwordResetTokenHash -passwordResetExpires')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  /**
+   * Everything an admin needs in the user-detail panel: the account (including wallet),
+   * the listings it owns, both sides of its escrow history and its withdrawals.
+   */
+  async getAdminUserDetail(userId: string) {
+    if (!Types.ObjectId.isValid(userId)) throw new NotFoundException('User not found');
+
+    const user = await this.userModel
+      .findById(userId)
+      .select('-fcmToken -passwordResetTokenHash -passwordResetExpires')
+      .exec();
+    if (!user) throw new NotFoundException('User not found');
+
+    const id = user._id.toString();
+    const [items, escrows, withdrawals, itemCount, escrowCount, activeEscrowCount] =
+      await Promise.all([
+        this.itemModel.find({ sellerId: user._id }).sort({ createdAt: -1 }).limit(100).exec(),
+        this.transactionModel
+          .find({ $or: [{ buyerId: id }, { sellerId: id }] })
+          .sort({ createdAt: -1 })
+          .limit(100)
+          .exec(),
+        this.withdrawalModel.find({ userId: id }).sort({ createdAt: -1 }).limit(50).exec(),
+        this.itemModel.countDocuments({ sellerId: user._id }),
+        this.transactionModel.countDocuments({ $or: [{ buyerId: id }, { sellerId: id }] }),
+        this.transactionModel.countDocuments({
+          $or: [{ buyerId: id }, { sellerId: id }],
+          status: { $in: [TransactionStatus.HELD_IN_ESCROW, TransactionStatus.DISPUTED] },
+        }),
+      ]);
+
+    return {
+      user,
+      items,
+      escrows,
+      withdrawals,
+      counts: {
+        items: itemCount,
+        escrows: escrowCount,
+        activeEscrows: activeEscrowCount,
+        walletBalance: Number(user.walletBalance || 0),
+      },
+    };
+  }
+
+  /**
+   * Admin-only account flags. The whitelist is deliberately tiny: `isVerified`,
+   * `isActive`, `isAdmin` and the `suspended` alias for `!isActive`. Profile fields,
+   * passwords, wallet balances and email are rejected rather than silently ignored.
+   */
+  async adminUpdateUser(userId: string, patch: any): Promise<User> {
+    if (!Types.ObjectId.isValid(userId)) throw new NotFoundException('User not found');
+    if (!patch || typeof patch !== 'object') {
+      throw new BadRequestException('A JSON body is required');
+    }
+
+    const allowedFields = ['isVerified', 'isActive', 'isAdmin', 'suspended'];
+    const providedFields = Object.keys(patch).filter((key) => patch[key] !== undefined);
+    if (providedFields.length === 0) {
+      throw new BadRequestException(
+        `No changes provided. Allowed: ${allowedFields.filter((field) => field !== 'suspended').join(', ')}, suspended`,
+      );
+    }
+
+    const unknownFields = providedFields.filter((field) => !allowedFields.includes(field));
+    if (unknownFields.length > 0) {
+      throw new BadRequestException(
+        `These fields cannot be changed by an admin: ${unknownFields.join(', ')}. Allowed: ${allowedFields.join(', ')}`,
+      );
+    }
+
+    const update: any = {};
+    for (const flag of ['isVerified', 'isActive', 'isAdmin']) {
+      if (patch[flag] === undefined) continue;
+      if (typeof patch[flag] !== 'boolean') {
+        throw new BadRequestException(`${flag} must be a boolean`);
+      }
+      update[flag] = patch[flag];
+    }
+
+    if (patch.suspended !== undefined) {
+      if (typeof patch.suspended !== 'boolean') {
+        throw new BadRequestException('suspended must be a boolean');
+      }
+      const active = !patch.suspended;
+      if (update.isActive !== undefined && update.isActive !== active) {
+        throw new BadRequestException('isActive and suspended contradict each other');
+      }
+      update.isActive = active;
+    }
+
+    if (Object.keys(update).length === 0) {
+      throw new BadRequestException('No changes provided');
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(userId, update, { new: true, runValidators: true })
+      .select('-fcmToken -passwordResetTokenHash -passwordResetExpires')
+      .exec();
+    if (!updated) throw new NotFoundException('User not found');
+
+    return updated;
+  }
+
   async create(data: Partial<User>): Promise<User> {
     return new this.userModel(data).save();
   }

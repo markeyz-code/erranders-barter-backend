@@ -37,6 +37,12 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user || !user.password) throw new UnauthorizedException('Invalid credentials');
 
+    // Suspension is enforced at sign-in as well as in JwtStrategy, so a suspended user
+    // cannot simply log in again to get a fresh token.
+    if (user.isActive === false) {
+      throw new UnauthorizedException('This account is suspended. Contact support.');
+    }
+
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
@@ -182,6 +188,8 @@ export class AuthService {
         email: user.email,
         avatar: user.avatar,
         isVerified: user.isVerified,
+        isAdmin: user.isAdmin === true,
+        isActive: user.isActive !== false,
       },
     };
   }

@@ -41,6 +41,11 @@ export class Item extends Document {
 
   @Prop({ default: false })
   isPromoted: boolean;
+
+  // Admin moderation switch. Deactivated listings are hidden from the public feed but
+  // remain visible on the admin marketplace screen so they can be reactivated.
+  @Prop({ default: true })
+  isActive: boolean;
 }
 
 export const ItemSchema = SchemaFactory.createForClass(Item);

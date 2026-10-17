@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
+import { AdminUsersController } from './admin-users.controller';
 import { User, UserSchema } from './schemas/user.schema';
 import { Item, ItemSchema } from '../items/schemas/item.schema';
 import { Transaction, TransactionSchema } from '../escrow/schemas/transaction.schema';
@@ -24,7 +25,7 @@ import { PaymentsModule } from '../payments/payments.module';
       { name: Withdrawal.name, schema: WithdrawalSchema },
     ])
   ],
-  controllers: [UsersController],
+  controllers: [UsersController, AdminUsersController],
   providers: [UsersService],
   exports: [UsersService],
 })
