@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 // Keeps the recently-viewed list from growing without bound.
 export const RECENTLY_VIEWED_LIMIT = 50;
@@ -129,7 +129,7 @@ export class User extends Document {
   @Prop({ select: false })
   passwordResetExpires: Date;
 
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Item' }], default: [] })
+  @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Item' }], default: [] })
   recentlyViewed: Types.ObjectId[]; // Most-recent-first, de-duplicated, capped at RECENTLY_VIEWED_LIMIT
 
   // Services marketplace: true once the user has applied as a provider.

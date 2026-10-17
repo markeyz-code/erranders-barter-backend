@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 export enum OfferStatus {
   PENDING = 'pending',
@@ -11,16 +11,16 @@ export enum OfferStatus {
 
 @Schema({ timestamps: true })
 export class Offer extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   proposerId: string | Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
   receiverId: string | Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Item', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Item', required: true })
   targetItemId: string | Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Item', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Item', required: true })
   offeredItemId: string | Types.ObjectId;
 
   // Positive means proposer pays receiver. Negative means receiver pays proposer.
@@ -31,7 +31,7 @@ export class Offer extends Document {
   status: OfferStatus;
 
   // If this offer is a counter to a previous offer, keep track of the chain
-  @Prop({ type: Types.ObjectId, ref: 'Offer' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Offer' })
   parentOfferId?: string | Types.ObjectId;
 }
 

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 export enum PriceType {
   FIXED = 'fixed',
@@ -13,7 +13,7 @@ export enum PriceType {
  */
 @Schema({ timestamps: true, collection: 'services' })
 export class Service extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   providerId: Types.ObjectId;
 
   @Prop({ required: true, trim: true })
@@ -22,7 +22,7 @@ export class Service extends Document {
   @Prop({ required: true })
   description: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category', required: true, index: true })
   category: Types.ObjectId;
 
   @Prop({ type: String, enum: PriceType, default: PriceType.FIXED })

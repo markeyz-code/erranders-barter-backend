@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * One recurring weekly working window. `dayOfWeek` uses the JS convention (0 = Sunday) and
@@ -7,7 +7,7 @@ import { Document, Types } from 'mongoose';
  */
 @Schema({ timestamps: true, collection: 'provideravailabilities' })
 export class ProviderAvailability extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   providerId: Types.ObjectId;
 
   @Prop({ required: true, min: 0, max: 6 })

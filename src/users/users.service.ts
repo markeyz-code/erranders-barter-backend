@@ -243,6 +243,9 @@ export class UsersService {
    * financial records.
    */
   async deleteAccount(userId: string, reason?: string) {
+    // findById throws a CastError (HTTP 500) on a malformed id; the admin delete route
+    // must answer 404 instead.
+    if (!Types.ObjectId.isValid(userId)) throw new NotFoundException('User not found');
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 

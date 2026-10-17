@@ -126,11 +126,15 @@ export class ServicesService {
 
     const category = await this.requireCategory(dto.category);
     const priceType = dto.priceType || PriceType.FIXED;
+    const title = dto.title.trim();
+    const description = dto.description.trim();
+    if (!title) throw new BadRequestException('title cannot be empty');
+    if (!description) throw new BadRequestException('description cannot be empty');
 
     const service = new this.serviceModel({
       providerId: userId,
-      title: dto.title.trim(),
-      description: dto.description.trim(),
+      title,
+      description,
       category: category._id,
       priceType,
       price: this.normalisePrice(priceType, dto.price),
@@ -245,6 +249,7 @@ export class ServicesService {
           $set: {
             status: BookingStatus.DECLINED,
             blocksSlot: false,
+            cancelledBy: userId,
             cancellationReason: 'Service was removed by the provider',
           },
           $unset: { slotKeys: 1 },

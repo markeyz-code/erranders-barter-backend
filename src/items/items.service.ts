@@ -64,6 +64,8 @@ export class ItemsService {
     if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Item not found');
     const item = await this.itemModel.findById(id).populate('sellerId', 'firstName lastName hostel level rating isVerified avatar totalTrades').exec();
     if (!item) throw new NotFoundException('Item not found');
+    // A listing deactivated by an admin is not servable to the public, even by direct id.
+    if (item.isActive === false) throw new NotFoundException('Item not found');
     return item;
   }
 

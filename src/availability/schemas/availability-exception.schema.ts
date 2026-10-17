@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 /**
  * A date-specific override.
@@ -11,7 +11,7 @@ import { Document, Types } from 'mongoose';
  */
 @Schema({ timestamps: true, collection: 'availabilityexceptions' })
 export class AvailabilityException extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   providerId: Types.ObjectId;
 
   @Prop({ required: true })

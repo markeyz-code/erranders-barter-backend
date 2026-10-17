@@ -299,6 +299,9 @@ export class BookingsService {
     const slot = await this.resolveSlot(service, dto.date, dto.startTime, id);
     const providerId = booking.providerId.toString();
 
+    // The status is deliberately kept: a pending request stays pending (the provider still has
+    // to accept), and a confirmed booking stays confirmed because both parties are already
+    // participants and the new slot has just been validated against the provider's calendar.
     const update = {
       date: dto.date,
       startTime: slot.startTime,
@@ -392,17 +395,28 @@ export class BookingsService {
   }
 
   private assertParticipant(booking: Booking, userId: string): void {
-    const isProvider = booking.providerId?.toString() === userId;
-    const isCustomer = booking.customerId?.toString() === userId;
+    const isProvider = this.refId(booking.providerId) === userId;
+    const isCustomer = this.refId(booking.customerId) === userId;
     if (!isProvider && !isCustomer) {
       throw new ForbiddenException('You are not a participant in this booking');
     }
   }
 
   private assertProvider(booking: Booking, userId: string): void {
-    if (booking.providerId?.toString() !== userId) {
+    if (this.refId(booking.providerId) !== userId) {
       throw new ForbiddenException('Only the provider can perform this action');
     }
+  }
+
+  /**
+   * A ref is an ObjectId on a raw document but a populated User document on a populated one;
+   * both must compare equal to the JWT's userId. Mongoose's Document#toString() is *not* the
+   * id, so populated refs are resolved through `_id` first.
+   */
+  private refId(value: any): string {
+    if (!value) return '';
+    if (value._id !== undefined) return value._id.toString();
+    return value.toString();
   }
 
   /** MongoDB duplicate-key error, whether raw or wrapped by Mongoose. */

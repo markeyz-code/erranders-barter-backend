@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 
 export enum BookingStatus {
   PENDING = 'pending',
@@ -11,27 +11,21 @@ export enum BookingStatus {
 }
 
 /**
- * Statuses that still occupy the provider's calendar. `cancelled` and `declined` release the
- * slot immediately; `completed` and `no_show` keep it so historical busy time is not offered
- * again for a date that has not passed yet.
+ * Statuses that still occupy the provider's calendar are tracked by `blocksSlot`: `pending`,
+ * `confirmed`, `completed` and `no_show` keep it true; `cancelled` and `declined` set it to
+ * false, which releases the slot without deleting the booking history.
  */
-export const BLOCKING_BOOKING_STATUSES: BookingStatus[] = [
-  BookingStatus.PENDING,
-  BookingStatus.CONFIRMED,
-  BookingStatus.COMPLETED,
-  BookingStatus.NO_SHOW,
-];
 
 @Schema({ timestamps: true, collection: 'bookings' })
 export class Booking extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Service', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Service', required: true, index: true })
   serviceId: Types.ObjectId;
 
   // Denormalised so "my calendar" and the overlap checks do not need a join through Service.
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   providerId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true, index: true })
   customerId: Types.ObjectId;
 
   @Prop({ required: true })
@@ -63,7 +57,7 @@ export class Booking extends Document {
   @Prop()
   meetingUrl: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Chat' })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Chat' })
   chatId: Types.ObjectId;
 
   @Prop()
