@@ -8,7 +8,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Booking, BookingStatus } from './schemas/booking.schema';
-import { Service } from '../services/schemas/service.schema';
+import { Service, PriceType } from '../services/schemas/service.schema';
 import { User } from '../users/schemas/user.schema';
 import { ChatService } from '../chat/chat.service';
 import { AvailabilityService } from '../availability/availability.service';
@@ -77,6 +77,15 @@ export class BookingsService {
       // Non-fatal if chat socket/db init lags
     }
 
+    let calculatedAmount = service.price || 0;
+    if (service.priceType === PriceType.HOURLY) {
+      calculatedAmount = Math.round((service.price || 0) * (service.durationMinutes / 60));
+    } else if (service.priceType === PriceType.PER_MINUTE) {
+      calculatedAmount = Math.round((service.price || 0) * service.durationMinutes);
+    } else if (service.priceType === PriceType.NEGOTIABLE) {
+      calculatedAmount = 0;
+    }
+
     const booking = new this.bookingModel({
       serviceId: service._id,
       providerId: service.providerId,
@@ -86,7 +95,7 @@ export class BookingsService {
       endTime: slot.endTime,
       durationMinutes: service.durationMinutes,
       bufferMinutes: service.bufferMinutes || 0,
-      amount: service.price || 0,
+      amount: calculatedAmount,
       status: BookingStatus.PENDING,
       notes: typeof dto.notes === 'string' ? dto.notes.trim() : '',
       blocksSlot: true,

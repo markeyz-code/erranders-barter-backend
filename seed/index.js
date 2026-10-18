@@ -264,7 +264,7 @@ const ServiceSchema = new mongoose.Schema(
     title: { type: String, required: true },
     description: String,
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
-    priceType: { type: String, enum: ['fixed', 'hourly', 'negotiable'], default: 'fixed' },
+    priceType: { type: String, enum: ['fixed', 'hourly', 'per_minute', 'negotiable'], default: 'fixed' },
     price: { type: Number, default: 0 },
     durationMinutes: { type: Number, required: true },
     bufferMinutes: { type: Number, default: 0 },

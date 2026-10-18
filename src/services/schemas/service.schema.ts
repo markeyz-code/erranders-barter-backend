@@ -4,6 +4,7 @@ import { Document, Types, Schema as MongooseSchema } from 'mongoose';
 export enum PriceType {
   FIXED = 'fixed',
   HOURLY = 'hourly',
+  PER_MINUTE = 'per_minute',
   NEGOTIABLE = 'negotiable',
 }
 
