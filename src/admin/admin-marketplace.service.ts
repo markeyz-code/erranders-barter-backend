@@ -203,6 +203,69 @@ export class AdminMarketplaceService {
     return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 } };
   }
 
+  /** Delete a service or remove from marketplace */
+  async deleteService(id: string) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Service not found');
+    const hasUpcoming = await this.bookingModel.exists({
+      serviceId: id,
+      status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+    });
+    if (hasUpcoming) {
+      throw new BadRequestException(
+        'Cannot delete a service that has upcoming bookings. Deactivate it instead.',
+      );
+    }
+    const service = await this.serviceModel.findByIdAndDelete(id).exec();
+    if (!service) throw new NotFoundException('Service not found');
+    return { success: true, message: 'Service removed successfully' };
+  }
+
+  /** Moderate a booking (e.g. admin cancellation or dispute resolution) */
+  async updateBookingStatus(id: string, body: { status: string; reason?: string }) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Booking not found');
+    const booking = await this.bookingModel.findById(id).exec();
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    if (body.status === BookingStatus.CANCELLED) {
+      booking.status = BookingStatus.CANCELLED;
+      booking.cancelledBy = 'admin';
+      booking.cancellationReason = body.reason || 'Cancelled by administrator';
+      booking.blocksSlot = false;
+      booking.slotKeys = [];
+    } else if (body.status === BookingStatus.COMPLETED) {
+      booking.status = BookingStatus.COMPLETED;
+      booking.blocksSlot = false;
+    } else if (body.status) {
+      booking.status = body.status as any;
+    }
+
+    await booking.save();
+    return this.bookingModel
+      .findById(id)
+      .populate('serviceId', 'title images price priceType durationMinutes isRemote isActive')
+      .populate('providerId', PROVIDER_POPULATE)
+      .populate('customerId', CUSTOMER_POPULATE)
+      .exec();
+  }
+
+  /** Update a provider profile flags */
+  async updateProvider(id: string, body: { isAcceptingBookings?: boolean; isServiceProvider?: boolean }) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Provider not found');
+    const update: any = {};
+    if (typeof body.isAcceptingBookings === 'boolean') {
+      update['providerProfile.isAcceptingBookings'] = body.isAcceptingBookings;
+    }
+    if (typeof body.isServiceProvider === 'boolean') {
+      update.isServiceProvider = body.isServiceProvider;
+    }
+    const user = await this.userModel
+      .findByIdAndUpdate(id, { $set: update }, { new: true })
+      .select(PROVIDER_POPULATE + ' email isVerified createdAt')
+      .exec();
+    if (!user) throw new NotFoundException('Provider not found');
+    return user;
+  }
+
   private parseBoolean(value: unknown, field: string): boolean {
     if (value === true || value === 'true' || value === '1' || value === 1) return true;
     if (value === false || value === 'false' || value === '0' || value === 0) return false;

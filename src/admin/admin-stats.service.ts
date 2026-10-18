@@ -5,6 +5,8 @@ import { User } from '../users/schemas/user.schema';
 import { Item, ItemStatus } from '../items/schemas/item.schema';
 import { Transaction, TransactionStatus } from '../escrow/schemas/transaction.schema';
 import { Withdrawal, WithdrawalStatus } from '../withdrawals/schemas/withdrawal.schema';
+import { Service } from '../services/schemas/service.schema';
+import { Booking, BookingStatus } from '../bookings/schemas/booking.schema';
 
 interface EscrowStatusBucket {
   _id: string;
@@ -20,12 +22,17 @@ interface WithdrawalStatusBucket {
   value: number;
 }
 
+interface BookingStatusBucket {
+  _id: string;
+  count: number;
+  value: number;
+}
+
 /**
  * Platform counters for the admin dashboard.
  *
  * Every number is a real aggregation over the collections this API owns — there are no
- * defaults or sample values. `bookings` is intentionally absent: the bookings module is
- * owned by a separate workstream and is not registered in AppModule yet.
+ * defaults or sample values.
  */
 @Injectable()
 export class AdminStatsService {
@@ -34,6 +41,8 @@ export class AdminStatsService {
     @InjectModel(Item.name) private readonly itemModel: Model<Item>,
     @InjectModel(Transaction.name) private readonly txModel: Model<Transaction>,
     @InjectModel(Withdrawal.name) private readonly withdrawalModel: Model<Withdrawal>,
+    @InjectModel(Service.name) private readonly serviceModel: Model<Service>,
+    @InjectModel(Booking.name) private readonly bookingModel: Model<Booking>,
   ) {}
 
   async getStats() {
@@ -42,6 +51,7 @@ export class AdminStatsService {
       userVerified,
       userSuspended,
       userAdmins,
+      userProviders,
       itemTotal,
       itemActive,
       itemInactive,
@@ -49,13 +59,18 @@ export class AdminStatsService {
       itemPending,
       itemSold,
       itemCompleted,
+      serviceTotal,
+      serviceActive,
+      serviceRemote,
       escrowBuckets,
       withdrawalBuckets,
+      bookingBuckets,
     ] = await Promise.all([
       this.userModel.countDocuments(),
       this.userModel.countDocuments({ isVerified: true }),
       this.userModel.countDocuments({ isActive: false }),
       this.userModel.countDocuments({ isAdmin: true }),
+      this.userModel.countDocuments({ isServiceProvider: true }),
       this.itemModel.countDocuments(),
       this.itemModel.countDocuments({ status: ItemStatus.ACTIVE, isActive: { $ne: false } }),
       this.itemModel.countDocuments({ isActive: false }),
@@ -63,6 +78,9 @@ export class AdminStatsService {
       this.itemModel.countDocuments({ status: ItemStatus.PENDING }),
       this.itemModel.countDocuments({ status: ItemStatus.SOLD }),
       this.itemModel.countDocuments({ status: ItemStatus.COMPLETED }),
+      this.serviceModel.countDocuments(),
+      this.serviceModel.countDocuments({ isActive: true }),
+      this.serviceModel.countDocuments({ isRemote: true, isActive: true }),
       this.txModel.aggregate<EscrowStatusBucket>([
         {
           $group: {
@@ -75,6 +93,15 @@ export class AdminStatsService {
         },
       ]),
       this.withdrawalModel.aggregate<WithdrawalStatusBucket>([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+            value: { $sum: { $ifNull: ['$amount', 0] } },
+          },
+        },
+      ]),
+      this.bookingModel.aggregate<BookingStatusBucket>([
         {
           $group: {
             _id: '$status',
@@ -120,12 +147,22 @@ export class AdminStatsService {
       withdrawalValueByStatus[bucket._id] = bucket.value;
     }
 
+    const bookingsByStatus: Record<string, number> = {};
+    let bookingsTotalValue = 0;
+    for (const bucket of bookingBuckets) {
+      bookingsByStatus[bucket._id] = bucket.count;
+      bookingsTotalValue += bucket.value;
+    }
+
     return {
       users: {
         total: userTotal,
         verified: userVerified,
         suspended: userSuspended,
         admins: userAdmins,
+      },
+      providers: {
+        total: userProviders,
       },
       items: {
         total: itemTotal,
@@ -135,6 +172,20 @@ export class AdminStatsService {
         pending: itemPending,
         sold: itemSold,
         completed: itemCompleted,
+      },
+      services: {
+        total: serviceTotal,
+        active: serviceActive,
+        remote: serviceRemote,
+        inactive: serviceTotal - serviceActive,
+      },
+      bookings: {
+        total: bookingBuckets.reduce((sum, bucket) => sum + bucket.count, 0),
+        pending: bookingsByStatus[BookingStatus.PENDING] || 0,
+        confirmed: bookingsByStatus[BookingStatus.CONFIRMED] || 0,
+        completed: bookingsByStatus[BookingStatus.COMPLETED] || 0,
+        cancelled: bookingsByStatus[BookingStatus.CANCELLED] || 0,
+        totalValue: bookingsTotalValue,
       },
       escrows: {
         total: escrowBuckets.reduce((sum, bucket) => sum + bucket.count, 0),

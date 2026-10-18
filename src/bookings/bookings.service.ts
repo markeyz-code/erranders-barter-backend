@@ -69,6 +69,14 @@ export class BookingsService {
     const slot = await this.resolveSlot(service, dto.date, dto.startTime);
     const providerId = service.providerId.toString();
 
+    let chatId: any = undefined;
+    try {
+      const chat = await this.chatService.findOrCreateChat([userId, providerId]);
+      chatId = chat?._id;
+    } catch {
+      // Non-fatal if chat socket/db init lags
+    }
+
     const booking = new this.bookingModel({
       serviceId: service._id,
       providerId: service.providerId,
@@ -82,6 +90,7 @@ export class BookingsService {
       status: BookingStatus.PENDING,
       notes: typeof dto.notes === 'string' ? dto.notes.trim() : '',
       blocksSlot: true,
+      chatId,
       slotKeys: buildSlotKeys(
         providerId,
         dto.date,

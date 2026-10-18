@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -38,15 +39,39 @@ export class AdminMarketplaceController {
     return this.adminService.moderateService(id, body);
   }
 
+  @Delete('services/:id')
+  @ApiOperation({ summary: 'Delete a service completely from marketplace' })
+  async deleteService(@Param('id') id: string) {
+    return this.adminService.deleteService(id);
+  }
+
   @Get('bookings')
   @ApiOperation({ summary: 'All bookings, filterable by status/date/participant' })
   async listBookings(@Query() query: any) {
     return this.adminService.listBookings(query);
   }
 
+  @Patch('bookings/:id/status')
+  @ApiOperation({ summary: 'Moderate or cancel a booking (admin action)' })
+  async updateBookingStatus(
+    @Param('id') id: string,
+    @Body() body: { status: string; reason?: string },
+  ) {
+    return this.adminService.updateBookingStatus(id, body);
+  }
+
   @Get('providers')
   @ApiOperation({ summary: 'All providers with service and booking counts' })
   async listProviders(@Query() query: any) {
     return this.adminService.listProviders(query);
+  }
+
+  @Patch('providers/:id')
+  @ApiOperation({ summary: 'Update provider status (accepting bookings / verified)' })
+  async updateProvider(
+    @Param('id') id: string,
+    @Body() body: { isAcceptingBookings?: boolean; isServiceProvider?: boolean },
+  ) {
+    return this.adminService.updateProvider(id, body);
   }
 }
