@@ -468,7 +468,13 @@ export class ItemsService {
     return dbQuery.limit(50).exec();
   }
 
-  async findOne(id: string): Promise<Item> {
+  async findOne(id: string): Promise<any> {
+    if (id === 'reels') {
+      return this.getReelsFeed();
+    }
+    if (id === 'catch-up') {
+      return this.getCatchUpListings();
+    }
     // `findById` throws a CastError (HTTP 500) on a non-ObjectId, so a typed URL
     // took the endpoint down instead of returning a clean 404. PATCH/DELETE in
     // this service already guarded; this was the odd one out.

@@ -26,6 +26,12 @@ export class ItemsController {
     return this.itemsService.getReelsFeed(userId, filter);
   }
 
+  @Get('reels/feed')
+  @ApiOperation({ summary: 'Instagram Reels feed alias' })
+  async getReelsAlias(@Query('userId') userId?: string, @Query('filter') filter?: string) {
+    return this.itemsService.getReelsFeed(userId, filter);
+  }
+
   @Get('declutter-batch/:batchId')
   @ApiOperation({ summary: 'Get all items and bundle discount for a declutter batch' })
   async getDeclutterBatch(@Param('batchId') batchId: string) {

@@ -9,6 +9,8 @@ import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Service, ServiceSchema } from '../services/schemas/service.schema';
 
+import { ReelsController } from '../reels/reels.controller';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -19,7 +21,7 @@ import { Service, ServiceSchema } from '../services/schemas/service.schema';
       { name: Service.name, schema: ServiceSchema },
     ])
   ],
-  controllers: [ItemsController, AdminItemsController],
+  controllers: [ItemsController, ReelsController, AdminItemsController],
   providers: [ItemsService],
   exports: [ItemsService],
 })

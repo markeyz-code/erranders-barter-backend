@@ -20,6 +20,8 @@ import { BookingsModule } from './bookings/bookings.module';
 import { AdminMarketplaceModule } from './admin/admin-marketplace.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
+import { AppController } from './app.controller';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -44,5 +46,6 @@ import { NotificationsModule } from './notifications/notifications.module';
     BookingsModule,
     AdminMarketplaceModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}

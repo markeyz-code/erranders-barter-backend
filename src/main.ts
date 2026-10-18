@@ -12,6 +12,15 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api/v1');
 
+  // Root health endpoints without prefix (Railway, Docker, ALB health checkers)
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.get('/', (_req: any, res: any) =>
+    res.status(200).json({ status: 'ok', service: 'barter-backend-api', version: '1.0.0' }),
+  );
+  expressApp.get('/health', (_req: any, res: any) =>
+    res.status(200).json({ status: 'ok', service: 'barter-backend-api', timestamp: new Date().toISOString() }),
+  );
+
   // CORS
   app.enableCors({
     origin: true,
