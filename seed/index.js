@@ -35,6 +35,7 @@ const SEED_EMAILS = [
   'tutor@barter.test',
   'nailtech@barter.test',
   'photographer@barter.test',
+  'mover@barter.test',
 ];
 const SEED_TX_PREFIX = 'seed-escrow-';
 // Exceptions are re-created on every run because their dates are relative to today; the
@@ -536,6 +537,39 @@ const USERS = [
       totalBookings: 27,
     },
   },
+  {
+    key: 'mover',
+    firstName: 'Chidi',
+    lastName: 'Okonkwo',
+    email: 'mover@barter.test',
+    isVerified: true,
+    whatsappNumber: '08031122334',
+    university: 'UNILAG',
+    hostel: 'New Hall',
+    level: '400L',
+    rating: 4.9,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Chidi+Okonkwo&background=2563EB&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'Campus Hostel Movement & Heavy Lifting Specialist',
+      bio: 'Experienced student mover & room prep pro. I help students pack, carry heavy stuff (fridges, beds, boxes), deep clean rooms for hall clearance/handover, and safely store luggage during holidays. Reliable, fast, and no broken items.',
+      skills: [
+        'Hostel Packing',
+        'Heavy Lifting & Loading',
+        'Room Deep Cleaning',
+        'Holiday Luggage Storage',
+        'Fridge Defrost & Prep',
+        'Electronics Dismantling',
+      ],
+      serviceArea: 'All UNILAG Hostels, Akoka & Yaba',
+      isAcceptingBookings: true,
+      rating: 4.9,
+      totalReviews: 38,
+      totalBookings: 52,
+    },
+  },
 ];
 
 const ITEMS = [
@@ -865,6 +899,86 @@ const SERVICES = [
     rating: 4.7,
     totalBookings: 6,
   },
+  {
+    key: 'mover-heavy-lifting',
+    provider: 'mover',
+    title: 'Hostel Moving & Heavy Lifting Assistance',
+    description:
+      'Moving out of your room or changing halls? I help carry heavy fridges, mattresses, storage trunks, and cartons down the stairs and load them directly into your cab or bus. Strong, careful handling so nothing breaks.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 3500,
+    durationMinutes: 60,
+    bufferMinutes: 15,
+    location: 'All UNILAG Hostels (New Hall, Jaja, Moremi, Fagunwa, Biobaku, Eni Njoku)',
+    isRemote: false,
+    tags: ['moving', 'hostel movement', 'heavy lifting', 'packout', 'campus mover'],
+    images: [
+      'https://images.unsplash.com/photo-1600585152220-90363fe7e115?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.9,
+    totalBookings: 32,
+  },
+  {
+    key: 'mover-deep-cleaning',
+    provider: 'mover',
+    title: 'Hostel Room Deep Clean & Clearance Handover Prep',
+    description:
+      'Avoid hostel penalty fees and get your hall clearance stamped fast. Complete sweeping, cobweb removal, tile scrubbing, wardrobe wiping, and bathroom disinfection before you hand your room keys back to the porter.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 4500,
+    durationMinutes: 90,
+    bufferMinutes: 20,
+    location: 'Your Hostel Room (On-Campus)',
+    isRemote: false,
+    tags: ['cleaning', 'room deep clean', 'hostel clearance', 'handover', 'sanitisation'],
+    images: [
+      'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.9,
+    totalBookings: 28,
+  },
+  {
+    key: 'mover-holiday-storage',
+    provider: 'mover',
+    title: 'Holiday Luggage & Trunk Safe Storage',
+    description:
+      'Traveling home for the semester break? Do not pay costly interstate bus baggage fees. Store your packed boxes, trunks, reading lamps, and appliances securely in a gated off-campus apartment with 24/7 security until resumption.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 5000,
+    durationMinutes: 30,
+    bufferMinutes: 15,
+    location: 'Akoka / Yaba Secure Storage',
+    isRemote: false,
+    tags: ['storage', 'holiday storage', 'luggage safe keeping', 'semester break'],
+    images: [
+      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.8,
+    totalBookings: 19,
+  },
+  {
+    key: 'mover-fridge-appliance',
+    provider: 'mover',
+    title: 'Mini-Fridge Defrost, Clean & Transport Prep',
+    description:
+      'Properly defrosting, draining, wiping down, and securing your mini-fridge and standing fan before you pack or store them so they do not grow mold or leak dirty water in transit.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 2500,
+    durationMinutes: 45,
+    bufferMinutes: 15,
+    location: 'Your Hostel Room',
+    isRemote: false,
+    tags: ['fridge defrost', 'appliances', 'cleaning', 'packing prep'],
+    images: [
+      'https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 14,
+  },
 ];
 
 // Weekly windows per provider. dayOfWeek: 0 = Sunday … 6 = Saturday.
@@ -962,6 +1076,19 @@ const AVAILABILITY = [
       },
     ],
   },
+  {
+    provider: 'mover',
+    windows: [
+      { dayOfWeek: 1, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 2, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 3, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 4, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 5, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 6, startTime: '08:00', endTime: '19:00' },
+      { dayOfWeek: 0, startTime: '09:00', endTime: '17:00' },
+    ],
+    exceptions: [],
+  },
 ];
 
 // Relative dates keep the demo usable no matter when the seed is run. Bookings are matched
@@ -1003,6 +1130,25 @@ const BOOKINGS = [
     startTime: '11:30',
     status: 'completed',
     notes: 'Graduation portraits for me and my sister. Delivered and paid — great session.',
+  },
+  {
+    key: 'confirmed-moving',
+    service: 'mover-heavy-lifting',
+    customer: 'buyer',
+    date: { nextWeekday: [1, 2, 3, 4, 5, 6] },
+    startTime: '10:00',
+    status: 'confirmed',
+    notes: 'Moving from Moremi Hall 3rd floor down to cab at gate. Have a mini-fridge and 2 big trunks.',
+    chat: [
+      {
+        sender: 'buyer',
+        content: 'Hi Chidi, I just booked you for 10am to help carry my fridge and boxes down from Moremi Hall 3rd floor.',
+      },
+      {
+        sender: 'mover',
+        content: 'Got it! I will bring strapping belts so we can safely move the fridge down without any scratch.',
+      },
+    ],
   },
 ];
 
@@ -1459,12 +1605,13 @@ async function main() {
   console.log('  Tutor        tutor@barter.test        / password123');
   console.log('  Nail tech    nailtech@barter.test     / password123');
   console.log('  Photographer photographer@barter.test / password123');
+  console.log('  Hostel Mover mover@barter.test        / password123');
   console.log('\nSeeded content:');
   console.log(`  ${USERS.length} users, ${ITEMS.length} listings (sell/swap/service),`);
   console.log('  2 pending swap offers, 3 escrows (held / released / disputed),');
   console.log('  2 conversations with real message history, categories and settings.');
   console.log(
-    `  ${SERVICES.length} bookable services from 4 providers, ` +
+    `  ${SERVICES.length} bookable services from ${new Set(SERVICES.map((s) => s.provider)).size} providers, ` +
       `${AVAILABILITY.reduce((total, entry) => total + entry.windows.length, 0)} weekly availability windows,`,
   );
   console.log(
