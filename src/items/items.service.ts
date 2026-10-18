@@ -445,7 +445,7 @@ export class ItemsService {
   async findAll(query: any): Promise<Item[]> {
     // A listing deactivated by an admin disappears from the public marketplace feed.
     const filter: any = { status: ItemStatus.ACTIVE, isActive: { $ne: false } };
-    if (query.location) filter.location = query.location;
+    if (query.location) filter.location = new RegExp(String(query.location).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     if (query.type) filter.type = query.type;
     if (query.category) filter.category = query.category;
     if (query.tag) filter.tags = query.tag;
