@@ -11,6 +11,9 @@
     "seed": "node seed/index.js",
     "seed:reset": "node seed/index.js --reset"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
