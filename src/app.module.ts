@@ -18,11 +18,13 @@ import { ServicesModule } from './services/services.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { AdminMarketplaceModule } from './admin/admin-marketplace.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/barter-dev'),
+    NotificationsModule,
     AuthModule,
     UsersModule,
     ItemsModule,

@@ -13,8 +13,9 @@ import { Transaction, TransactionStatus } from './schemas/transaction.schema';
 import { SettingsService } from '../settings/settings.service';
 import { UsersService } from '../users/users.service';
 import { LogisticsService } from '../logistics/logistics.service';
-import { Item } from '../items/schemas/item.schema';
+import { Item, ItemStatus } from '../items/schemas/item.schema';
 import { User } from '../users/schemas/user.schema';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class EscrowService {
@@ -27,11 +28,36 @@ export class EscrowService {
     private settingsService: SettingsService,
     private usersService: UsersService,
     private logisticsService: LogisticsService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async initiate(dto: { buyerId: string; sellerId: string; itemId: string; amount: number; deliveryMethod?: string; deliveryAddress?: string; paymentReference?: string; deliveryFee?: number }): Promise<Transaction> {
+    if (dto.buyerId === dto.sellerId) {
+      throw new BadRequestException('You cannot purchase your own item');
+    }
+
     const item = await this.itemModel.findById(dto.itemId);
     if (!item) throw new NotFoundException('Item not found');
+
+    if (item.status === ItemStatus.SOLD) {
+      throw new BadRequestException('This item is already sold out and no longer available.');
+    }
+    if (item.status === ItemStatus.PENDING) {
+      throw new BadRequestException('This item is currently reserved in an ongoing escrow transaction.');
+    }
+    if (item.status !== ItemStatus.ACTIVE) {
+      throw new BadRequestException(`This item is not available for purchase (current status: ${item.status}).`);
+    }
+
+    // Atomic compare-and-swap lock to prevent race condition double-buys
+    const lockedItem = await this.itemModel.findOneAndUpdate(
+      { _id: dto.itemId, status: ItemStatus.ACTIVE },
+      { $set: { status: ItemStatus.PENDING } },
+      { new: true },
+    );
+    if (!lockedItem) {
+      throw new BadRequestException('This item was just reserved or purchased by another student. Please refresh.');
+    }
 
     let deliveryFee = 0;
     if (dto.deliveryMethod === 'errander') {
@@ -76,9 +102,41 @@ export class EscrowService {
     });
     const savedTx = await tx.save();
 
-    // Hand the delivery to the real logistics service. It persists a dispatch row before
-    // calling the provider, so a failure is recorded as FAILED (with lastError) instead of
-    // being swallowed or reported as a success.
+    // Trigger aggressive in-app notifications and email to seller & buyer
+    void (async () => {
+      try {
+        const [seller, buyer] = await Promise.all([
+          this.userModel.findById(dto.sellerId).lean().exec(),
+          this.userModel.findById(dto.buyerId).lean().exec(),
+        ]);
+        const buyerName = buyer ? `${buyer.firstName || ''} ${buyer.lastName || ''}`.trim() || 'A student' : 'A student';
+        const sellerName = seller ? `${seller.firstName || ''} ${seller.lastName || ''}`.trim() || 'Student' : 'Student';
+
+        await this.notificationsService.create({
+          userId: dto.sellerId,
+          actorId: dto.buyerId,
+          title: 'Escrow Payment Received! 💰',
+          message: `${buyerName} initiated escrow payment of ₦${savedTx.amount.toLocaleString()} for "${item.title}". Item is now reserved.`,
+          type: 'trade_requested' as any,
+          link: '/escrow',
+          metadata: { transactionId: savedTx._id.toString(), itemId: item._id.toString() },
+        });
+
+        if (seller?.email) {
+          await this.notificationsService.getEmailService().sendEscrowInitiated(
+            seller.email,
+            sellerName,
+            buyerName,
+            item.title,
+            savedTx.amount,
+          );
+        }
+      } catch (err) {
+        this.logger.error(`Failed to dispatch escrow initiation notifications: ${err?.message || err}`);
+      }
+    })();
+
+    // Hand the delivery to the real logistics service
     if (dto.deliveryMethod === 'errander') {
       try {
         const seller = await this.usersService.findById(dto.sellerId);
@@ -119,11 +177,48 @@ export class EscrowService {
       await this.usersService.incrementWalletBalance(tx.sellerId, sellerPayout);
     }
 
-    // If there's an Errander, we would credit their wallet. Currently, Barter doesn't have an errander assignment flow, 
-    // but the Errander's payout would be: tx.deliveryFee - ((tx.deliveryFee * erranderCommPerc) / 100).
-
     tx.status = TransactionStatus.RELEASED;
-    return tx.save();
+    const savedTx = await tx.save();
+
+    // Mark item as SOLD OUT permanently
+    await this.itemModel.findByIdAndUpdate(tx.itemId, { $set: { status: ItemStatus.SOLD } }).exec();
+
+    // Aggressive completion notifications & email
+    void (async () => {
+      try {
+        const [seller, buyer, item] = await Promise.all([
+          this.userModel.findById(tx.sellerId).lean().exec(),
+          this.userModel.findById(tx.buyerId).lean().exec(),
+          this.itemModel.findById(tx.itemId).lean().exec(),
+        ]);
+        const buyerName = buyer ? `${buyer.firstName || ''} ${buyer.lastName || ''}`.trim() || 'The buyer' : 'The buyer';
+        const sellerName = seller ? `${seller.firstName || ''} ${seller.lastName || ''}`.trim() || 'Student' : 'Student';
+        const itemTitle = item?.title || 'Your item';
+
+        await this.notificationsService.create({
+          userId: tx.sellerId,
+          title: 'Funds Released! Item Sold Out 🚀',
+          message: `${buyerName} confirmed receipt of "${itemTitle}". ₦${sellerPayout.toLocaleString()} credited to your wallet!`,
+          type: 'trade_completed' as any,
+          link: '/dashboard/wallet',
+          metadata: { transactionId: tx._id.toString(), payout: sellerPayout, itemId: tx.itemId },
+        });
+
+        if (seller?.email) {
+          await this.notificationsService.getEmailService().sendItemSoldOut(
+            seller.email,
+            sellerName,
+            itemTitle,
+            buyerName,
+            sellerPayout,
+          );
+        }
+      } catch (err) {
+        this.logger.error(`Failed to dispatch escrow release notifications: ${err?.message || err}`);
+      }
+    })();
+
+    return savedTx;
   }
 
   /** Seller payout and platform commission for a transaction, using the live setting. */
@@ -352,6 +447,10 @@ export class EscrowService {
           .updateOne({ _id: claimed._id }, { $set: { refundAmount } })
           .exec();
       }
+
+      // Sync item status lifecycle
+      const newItemStatus = resolution === 'release' ? ItemStatus.SOLD : ItemStatus.ACTIVE;
+      await this.itemModel.findByIdAndUpdate(tx.itemId, { $set: { status: newItemStatus } }).exec();
     } catch (error: any) {
       // No money moved (or the credit threw before committing), so put the transaction
       // back exactly where it was and report the failure.

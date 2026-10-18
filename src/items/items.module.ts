@@ -6,6 +6,8 @@ import { AdminItemsController } from './admin-items.controller';
 import { Item, ItemSchema } from './schemas/item.schema';
 import { Transaction, TransactionSchema } from '../escrow/schemas/transaction.schema';
 import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
+import { User, UserSchema } from '../users/schemas/user.schema';
+import { Service, ServiceSchema } from '../services/schemas/service.schema';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
       { name: Item.name, schema: ItemSchema },
       { name: Transaction.name, schema: TransactionSchema },
       { name: Offer.name, schema: OfferSchema },
+      { name: User.name, schema: UserSchema },
+      { name: Service.name, schema: ServiceSchema },
     ])
   ],
   controllers: [ItemsController, AdminItemsController],

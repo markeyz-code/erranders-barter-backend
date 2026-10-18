@@ -16,6 +16,8 @@ import { buildSlotKeys, isValidTimeString } from '../availability/slot-math';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 const SERVICE_POPULATE =
   'title description images price priceType durationMinutes bufferMinutes location isRemote isActive';
 const PROVIDER_POPULATE =
@@ -30,6 +32,7 @@ export class BookingsService {
     @InjectModel(User.name) private userModel: Model<User>,
     private readonly chatService: ChatService,
     private readonly availabilityService: AvailabilityService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -66,7 +69,12 @@ export class BookingsService {
       throw new BadRequestException('This provider has paused new bookings');
     }
 
-    const slot = await this.resolveSlot(service, dto.date, dto.startTime);
+    const durationMinutes =
+      dto.durationMinutes && dto.durationMinutes > 0
+        ? dto.durationMinutes
+        : service.durationMinutes;
+
+    const slot = await this.resolveSlot(service, dto.date, dto.startTime, undefined, durationMinutes);
     const providerId = service.providerId.toString();
 
     let chatId: any = undefined;
@@ -79,9 +87,15 @@ export class BookingsService {
 
     let calculatedAmount = service.price || 0;
     if (service.priceType === PriceType.HOURLY) {
-      calculatedAmount = Math.round((service.price || 0) * (service.durationMinutes / 60));
+      calculatedAmount = Math.round((service.price || 0) * (durationMinutes / 60));
     } else if (service.priceType === PriceType.PER_MINUTE) {
-      calculatedAmount = Math.round((service.price || 0) * service.durationMinutes);
+      calculatedAmount = Math.round((service.price || 0) * durationMinutes);
+    } else if (service.priceType === PriceType.FIXED) {
+      if (durationMinutes !== service.durationMinutes && service.durationMinutes > 0) {
+        calculatedAmount = Math.round((service.price || 0) * (durationMinutes / service.durationMinutes));
+      } else {
+        calculatedAmount = service.price || 0;
+      }
     } else if (service.priceType === PriceType.NEGOTIABLE) {
       calculatedAmount = 0;
     }
@@ -93,7 +107,7 @@ export class BookingsService {
       date: dto.date,
       startTime: slot.startTime,
       endTime: slot.endTime,
-      durationMinutes: service.durationMinutes,
+      durationMinutes,
       bufferMinutes: service.bufferMinutes || 0,
       amount: calculatedAmount,
       status: BookingStatus.PENDING,
@@ -104,7 +118,7 @@ export class BookingsService {
         providerId,
         dto.date,
         slot.startTime,
-        service.durationMinutes,
+        durationMinutes,
         service.bufferMinutes || 0,
       ),
     });
@@ -119,6 +133,58 @@ export class BookingsService {
       }
       throw error;
     }
+
+    // Asynchronously dispatch notifications and emails
+    void (async () => {
+      try {
+        const [customerUser, providerUser] = await Promise.all([
+          this.userModel.findById(userId).select('firstName lastName email').lean().exec(),
+          this.userModel.findById(service.providerId).select('firstName lastName email').lean().exec(),
+        ]);
+
+        const customerName = customerUser ? `${customerUser.firstName || ''} ${customerUser.lastName || ''}`.trim() || 'Student' : 'Student';
+        const providerName = providerUser ? `${providerUser.firstName || ''} ${providerUser.lastName || ''}`.trim() || 'Provider' : 'Provider';
+
+        // In-app notification for Provider
+        await this.notificationsService.create({
+          userId: service.providerId,
+          actorId: userId,
+          title: `New Booking Request from ${customerName}`,
+          message: `${customerName} requested ${service.title} for ${dto.date} (${slot.startTime} – ${slot.endTime})`,
+          type: 'booking_created',
+          link: '/dashboard/bookings',
+          metadata: { bookingId: booking._id, serviceId: service._id },
+        });
+
+        // Email for Provider
+        if (providerUser?.email) {
+          await this.notificationsService.getEmailService().sendBookingRequested(
+            providerUser.email,
+            providerName,
+            customerName,
+            service.title,
+            dto.date,
+            slot.startTime,
+            slot.endTime,
+            calculatedAmount,
+            dto.notes,
+          );
+        }
+
+        // In-app notification for Customer
+        await this.notificationsService.create({
+          userId: userId,
+          actorId: service.providerId,
+          title: `Booking Request Placed`,
+          message: `Your booking for ${service.title} with ${providerName} on ${dto.date} (${slot.startTime} – ${slot.endTime}) is pending approval.`,
+          type: 'booking_created',
+          link: '/dashboard/bookings',
+          metadata: { bookingId: booking._id, serviceId: service._id },
+        });
+      } catch (err) {
+        // Non-fatal notification failure
+      }
+    })();
 
     return this.findPopulated(booking._id.toString());
   }
@@ -163,7 +229,7 @@ export class BookingsService {
 
     const service = await this.serviceModel
       .findById(booking.serviceId)
-      .select('isRemote')
+      .select('title isRemote')
       .lean()
       .exec();
     if (!service) throw new NotFoundException('Service not found');
@@ -185,6 +251,41 @@ export class BookingsService {
     if (!updated) {
       throw new ConflictException('This booking changed state before it could be accepted');
     }
+
+    // Notify Customer of confirmation
+    void (async () => {
+      try {
+        const [customerUser, providerUser] = await Promise.all([
+          this.userModel.findById(booking.customerId).select('firstName lastName email').lean().exec(),
+          this.userModel.findById(booking.providerId).select('firstName lastName email').lean().exec(),
+        ]);
+        const customerName = customerUser ? `${customerUser.firstName || ''} ${customerUser.lastName || ''}`.trim() || 'Student' : 'Student';
+        const providerName = providerUser ? `${providerUser.firstName || ''} ${providerUser.lastName || ''}`.trim() || 'Provider' : 'Provider';
+
+        await this.notificationsService.create({
+          userId: booking.customerId,
+          actorId: booking.providerId,
+          title: `Booking Confirmed! 🎉`,
+          message: `${providerName} confirmed your session for ${service.title} on ${booking.date} (${booking.startTime} – ${booking.endTime})`,
+          type: 'booking_confirmed',
+          link: '/dashboard/bookings',
+          metadata: { bookingId: booking._id },
+        });
+
+        if (customerUser?.email) {
+          await this.notificationsService.getEmailService().sendBookingConfirmed(
+            customerUser.email,
+            customerName,
+            providerName,
+            service.title,
+            booking.date,
+            booking.startTime,
+            booking.endTime,
+            update.meetingUrl,
+          );
+        }
+      } catch (err) {}
+    })();
 
     return this.findPopulated(id);
   }
@@ -252,6 +353,43 @@ export class BookingsService {
     if (!updated) {
       throw new ConflictException('This booking changed state before it could be cancelled');
     }
+
+    // Notify the other party of cancellation
+    void (async () => {
+      try {
+        const otherPartyId = booking.customerId.toString() === userId ? booking.providerId : booking.customerId;
+        const [canceller, recipient] = await Promise.all([
+          this.userModel.findById(userId).select('firstName lastName').lean().exec(),
+          this.userModel.findById(otherPartyId).select('firstName lastName email').lean().exec(),
+        ]);
+        const cancellerName = canceller ? `${canceller.firstName || ''} ${canceller.lastName || ''}`.trim() : 'The other party';
+        const recipientName = recipient ? `${recipient.firstName || ''} ${recipient.lastName || ''}`.trim() : 'Student';
+
+        const serviceDoc = await this.serviceModel.findById(booking.serviceId).select('title').lean().exec();
+        const serviceTitle = serviceDoc?.title || 'Service';
+
+        await this.notificationsService.create({
+          userId: otherPartyId,
+          actorId: userId,
+          title: `Booking Cancelled`,
+          message: `${cancellerName} cancelled the booking for ${serviceTitle} on ${booking.date} (${booking.startTime}). Reason: "${cleanReason}"`,
+          type: 'booking_cancelled',
+          link: '/dashboard/bookings',
+        });
+
+        if (recipient?.email) {
+          await this.notificationsService.getEmailService().sendBookingCancelled(
+            recipient.email,
+            recipientName,
+            cancellerName,
+            serviceTitle,
+            booking.date,
+            booking.startTime,
+            cleanReason,
+          );
+        }
+      } catch (err) {}
+    })();
 
     return this.findPopulated(id);
   }
@@ -372,6 +510,7 @@ export class BookingsService {
     date: string,
     startTime: string,
     excludeBookingId?: string,
+    durationMinutes?: number,
   ) {
     if (!isValidTimeString(startTime)) {
       throw new BadRequestException('startTime must be a 24-hour time like "09:00"');
@@ -379,6 +518,7 @@ export class BookingsService {
 
     const slots = await this.availabilityService.computeSlotsForService(service, date, {
       excludeBookingId,
+      durationMinutes,
     });
     const slot = slots.find((candidate) => candidate.startTime === startTime);
     if (!slot) {

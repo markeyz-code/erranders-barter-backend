@@ -25,6 +25,7 @@ import {
 export interface ComputeSlotsOptions {
   /** A booking being rescheduled must not block its own new time. */
   excludeBookingId?: string;
+  durationMinutes?: number;
   now?: Date;
 }
 
@@ -209,9 +210,14 @@ export class AvailabilityService {
         .exec(),
     ]);
 
+    const durationMinutes =
+      options.durationMinutes && options.durationMinutes > 0
+        ? options.durationMinutes
+        : service.durationMinutes;
+
     return buildDaySlots({
       date,
-      durationMinutes: service.durationMinutes,
+      durationMinutes,
       bufferMinutes: service.bufferMinutes,
       windows: windows as any,
       exceptions: exceptions as unknown as AvailabilityExceptionInput[],

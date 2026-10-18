@@ -277,8 +277,8 @@ export class ServicesService {
   }
 
   /** Computed slots for one date, used by GET /services/:id/availability. */
-  async getAvailability(id: string, date: string) {
-    return this.availabilityService.computeSlots(id, date);
+  async getAvailability(id: string, date: string, durationMinutes?: number) {
+    return this.availabilityService.computeSlots(id, date, { durationMinutes });
   }
 
   private async assertProvider(userId: string): Promise<void> {

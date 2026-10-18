@@ -39,9 +39,14 @@ export class ServicesController {
   }
 
   @Get(':id/availability')
-  @ApiOperation({ summary: 'Computed bookable slots for a service on a date (?date=YYYY-MM-DD)' })
-  async getAvailability(@Param('id') id: string, @Query('date') date: string) {
-    return this.servicesService.getAvailability(id, date);
+  @ApiOperation({ summary: 'Computed bookable slots for a service on a date (?date=YYYY-MM-DD&durationMinutes=60)' })
+  async getAvailability(
+    @Param('id') id: string,
+    @Query('date') date: string,
+    @Query('durationMinutes') durationMinutes?: string,
+  ) {
+    const duration = durationMinutes ? parseInt(durationMinutes, 10) : undefined;
+    return this.servicesService.getAvailability(id, date, duration);
   }
 
   @Get(':id')
