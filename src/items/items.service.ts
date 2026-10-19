@@ -150,6 +150,7 @@ export class ItemsService {
             .lean()
             .exec();
 
+          // In-app notifications to all hostel students (0 token cost)
           for (const student of nearbyStudents) {
             await this.notificationsService.create({
               userId: student._id.toString(),
@@ -159,7 +160,11 @@ export class ItemsService {
               link: `/explore?declutter=true`,
               metadata: { batchId, hostel },
             });
+          }
 
+          // Email tokens management: send email alert to top 5 verified nearby students per batch
+          const emailTargets = nearbyStudents.slice(0, 5);
+          for (const student of emailTargets) {
             if (student.email) {
               await this.notificationsService.getEmailService().sendDeclutterHostelAlert(
                 student.email,

@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { EmailService } from '../notifications/email.service';
 
 const PASSWORD_RESET_MESSAGE =
   'If an account exists for that email, a password reset link has been sent.';
@@ -22,6 +23,7 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async signup(dto: { firstName: string; lastName: string; email: string; password: string; whatsappNumber: string; university: string; hostel: string; level: string }) {
@@ -126,51 +128,18 @@ export class AuthService {
   }
 
   /**
-   * Sends the reset link through the configured transactional email HTTP API. This is a
-   * real provider call: when it is not configured or rejects the request the endpoint
-   * fails loudly instead of telling the user an email went out.
+   * Sends the reset link through the configured transactional email service (Resend).
    */
   private async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-    const apiUrl = (process.env.EMAIL_API_URL || '').trim();
-    const apiKey = (process.env.EMAIL_API_KEY || '').trim();
-    const from = (process.env.EMAIL_FROM || '').trim();
-
-    if (!apiUrl || !apiKey || !from) {
-      this.logger.error(
-        'Password reset email was not sent: EMAIL_API_URL, EMAIL_API_KEY and EMAIL_FROM must all be set.',
-      );
-      throw new ServiceUnavailableException(
-        'Password reset email is not configured. Set EMAIL_API_URL, EMAIL_API_KEY and EMAIL_FROM.',
-      );
-    }
-
-    const appName = process.env.APP_NAME || 'Erranders Barter';
-    let response: Response;
     try {
-      response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          from,
-          to,
-          subject: `Reset your ${appName} password`,
-          text: `Use this link to reset your password (valid for 1 hour): ${resetUrl}`,
-          html: `<p>Use the link below to reset your ${appName} password. It expires in 1 hour.</p><p><a href="${resetUrl}">Reset password</a></p><p>If you did not request this, you can ignore this email.</p>`,
-        }),
-      });
-    } catch (err) {
-      this.logger.error(`Could not reach the email provider: ${err.message}`);
-      throw new ServiceUnavailableException(
-        'The password reset email could not be sent. Please try again later.',
-      );
-    }
-
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
-      this.logger.error(`Email provider rejected the reset email (HTTP ${response.status}): ${detail}`);
+      const sent = await this.emailService.sendPasswordResetEmail(to, resetUrl);
+      if (!sent) {
+        throw new ServiceUnavailableException(
+          'The password reset email could not be sent. Please try again later.',
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed to send password reset email: ${err?.message || err}`);
       throw new ServiceUnavailableException(
         'The password reset email could not be sent. Please try again later.',
       );
