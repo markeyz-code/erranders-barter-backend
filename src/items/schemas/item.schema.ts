@@ -87,9 +87,6 @@ export class Item extends Document {
   @Prop()
   batchId?: string;
 
-  @Prop()
-  batchTitle?: string;
-
   @Prop({ default: 0 })
   bundleDiscountPercent?: number;
 
@@ -98,6 +95,9 @@ export class Item extends Document {
 
   @Prop()
   condition?: string;
+
+  @Prop()
+  groupName?: string;
 }
 
 export const ItemSchema = SchemaFactory.createForClass(Item);

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Item, ItemStatus, ItemType } from './schemas/item.schema';
@@ -24,7 +24,7 @@ const ITEM_UPDATABLE_FIELDS = [
 ];
 
 @Injectable()
-export class ItemsService implements OnModuleInit {
+export class ItemsService {
   private readonly logger = new Logger(ItemsService.name);
 
   constructor(
@@ -36,164 +36,6 @@ export class ItemsService implements OnModuleInit {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  async onModuleInit() {
-    try {
-      await this.seedProductVideoReels();
-    } catch (err) {
-      this.logger.warn(`Could not run seedProductVideoReels on startup: ${err.message}`);
-    }
-  }
-
-  /**
-   * Seed high quality student marketplace products with real working videos & audio tracks.
-   */
-  async seedProductVideoReels() {
-    try {
-      let seller = await this.userModel.findOne({ isVerified: true }).exec();
-      if (!seller) {
-        seller = await this.userModel.findOne().exec();
-      }
-      if (!seller) {
-        seller = await this.userModel.create({
-          email: 'campus.seller@decluttered.ng',
-          password: 'Password123!Safe',
-          firstName: 'Chinedu',
-          lastName: 'Okafor',
-          hostel: 'Moremi Hall, Room 204',
-          level: '300L',
-          isVerified: true,
-          rating: 4.9,
-          role: 'student',
-        });
-      }
-
-      const sampleReels = [
-        {
-          title: 'Apple MacBook Pro M2 (16GB RAM, 512GB SSD) - Clean UK Used',
-          description: 'Tested with audio & benchmark video! Battery health 98%, includes 96W USB-C charger. Available for immediate pickup or Errander delivery.',
-          price: 850000,
-          location: 'Moremi Hall, Room 204',
-          category: 'Electronics',
-          condition: 'Like New',
-          type: ItemType.SELL,
-          status: ItemStatus.ACTIVE,
-          isActive: true,
-          isPromoted: true,
-          likesCount: 24,
-          repostsCount: 8,
-          images: [
-            'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&q=80&w=800',
-            'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?auto=format&fit=crop&q=80&w=800',
-          ],
-          videos: [
-            'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-          ],
-        },
-        {
-          title: 'Sony WH-1000XM5 Active Noise Cancelling Headphones (Sound Tested)',
-          description: 'Watch & listen to the sound test video with audio! Crystal clear ANC, 30hr battery life. Selling because I need cash for project clearance.',
-          price: 210000,
-          location: 'Queen Amina Hall, Block B',
-          category: 'Gadgets',
-          condition: 'Used - Like New',
-          type: ItemType.SELL,
-          status: ItemStatus.ACTIVE,
-          isActive: true,
-          isPromoted: true,
-          likesCount: 38,
-          repostsCount: 12,
-          images: [
-            'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800',
-            'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&q=80&w=800',
-          ],
-          videos: [
-            'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
-          ],
-        },
-        {
-          title: 'JBL Flip 6 Waterproof Bluetooth Speaker (Bass & Audio Tested)',
-          description: 'Massive bass, 100% original with serial number verified. Turn on sound to hear audio playback test in the reel!',
-          price: 65000,
-          location: 'Block 4, Room 234',
-          category: 'Gadgets',
-          condition: 'Good Condition',
-          type: ItemType.SELL,
-          status: ItemStatus.ACTIVE,
-          isActive: true,
-          likesCount: 19,
-          repostsCount: 5,
-          images: [
-            'https://images.unsplash.com/photo-1545454675-3531b543be5d?auto=format&fit=crop&q=80&w=800',
-          ],
-          videos: [
-            'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
-          ],
-        },
-        {
-          title: 'PlayStation 5 Console + 2 DualSense Controllers (Gameplay & Sound)',
-          description: 'Comes with FIFA 24 & Spider-Man 2 installed. Silent fan, spotless condition. Video demo has gameplay audio.',
-          price: 540000,
-          location: 'Hostel D, Room 112',
-          category: 'Gaming',
-          condition: 'Used - Excellent',
-          type: ItemType.SELL,
-          status: ItemStatus.ACTIVE,
-          isActive: true,
-          isPromoted: true,
-          likesCount: 42,
-          repostsCount: 15,
-          images: [
-            'https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&q=80&w=800',
-          ],
-          videos: [
-            'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
-          ],
-        },
-        {
-          title: 'Kenwood 2-in-1 Heavy Duty Blender + 2L Stainless Electric Kettle',
-          description: 'Tested working video with sound! Blends smoothies and beans effortlessly. Graduating and decluttering room.',
-          price: 38000,
-          location: 'Mariere Hall, Room 310',
-          category: 'Home & Appliances',
-          condition: 'Good Condition',
-          type: ItemType.SELL,
-          status: ItemStatus.ACTIVE,
-          isActive: true,
-          likesCount: 15,
-          repostsCount: 3,
-          images: [
-            'https://images.unsplash.com/photo-1570222094114-d054a817e56b?auto=format&fit=crop&q=80&w=800',
-          ],
-          videos: [
-            'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
-          ],
-        },
-      ];
-
-      for (const reelData of sampleReels) {
-        const existing = await this.itemModel.findOne({ title: reelData.title }).exec();
-        if (existing) {
-          existing.videos = reelData.videos;
-          existing.images = reelData.images;
-          existing.status = ItemStatus.ACTIVE;
-          existing.isActive = true;
-          await existing.save();
-        } else {
-          await this.itemModel.create({
-            ...reelData,
-            sellerId: seller._id,
-          });
-        }
-      }
-
-      this.logger.log('Successfully seeded/updated sample product video reels with working sound.');
-      return { success: true, count: sampleReels.length, message: 'Seeded video reels with audio successfully' };
-    } catch (err) {
-      this.logger.error(`Failed to seed product video reels: ${err.message}`, err.stack);
-      return { success: false, error: err.message };
-    }
-  }
-
   async create(createItemDto: any, userId: string): Promise<Item> {
     const newItem = new this.itemModel({ ...createItemDto, sellerId: userId });
     return newItem.save();
@@ -203,7 +45,6 @@ export class ItemsService implements OnModuleInit {
     payload: {
       hostel?: string;
       groupName?: string;
-      batchTitle?: string;
       bundleDiscountPercent?: number;
       autoPriceDrop?: boolean;
       items: Array<{
@@ -223,7 +64,7 @@ export class ItemsService implements OnModuleInit {
     }
 
     const hostel = (payload.hostel || 'Campus Hostel').trim();
-    const batchTitle = (payload.groupName || payload.batchTitle || `${hostel} Declutter Sale`).trim();
+    const groupName = (payload.groupName || `${hostel} Declutter Sale`).trim();
     const bundleDiscount = Number(payload.bundleDiscountPercent || 0);
     const batchId = `BATCH_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
@@ -239,7 +80,7 @@ export class ItemsService implements OnModuleInit {
 
       const desc = [
         item.description || '',
-        `📦 Part of Campus Room Declutter Batch "${batchTitle}" at ${hostel}.`,
+        `📦 Part of "${groupName}" at ${hostel}.`,
         item.condition ? `Condition: ${item.condition}.` : '',
         bundleDiscount > 0 ? `🔥 Room Clearance: Get ${bundleDiscount}% off when taking room bundle!` : '',
       ]
@@ -259,7 +100,7 @@ export class ItemsService implements OnModuleInit {
         sellerId: userId,
         tags: ['declutter', 'room-clearance', 'hostel-moveout', hostel.toLowerCase().replace(/\s+/g, '-')],
         batchId,
-        batchTitle,
+        groupName,
         bundleDiscountPercent: bundleDiscount,
         autoPriceDrop: Boolean(payload.autoPriceDrop),
         condition: item.condition || 'Good Condition',
@@ -365,7 +206,6 @@ export class ItemsService implements OnModuleInit {
 
     return {
       batchId,
-      batchTitle: items[0]?.batchTitle || `${items[0]?.location || 'Campus'} Declutter Sale`,
       seller: items[0]?.sellerId,
       hostel: items[0]?.location,
       totalItems: items.length,

@@ -46,18 +46,6 @@ export class ItemsController {
     return this.itemsService.findMyListings(req.user.userId);
   }
 
-  @Get('seed-video-reels')
-  @ApiOperation({ summary: 'Seed sample campus marketplace video reels with audio' })
-  async seedVideoReels() {
-    return this.itemsService.seedProductVideoReels();
-  }
-
-  @Post('seed-video-reels')
-  @ApiOperation({ summary: 'Seed sample campus marketplace video reels with audio' })
-  async postSeedVideoReels() {
-    return this.itemsService.seedProductVideoReels();
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get a single item by ID' })
   async findOne(@Param('id') id: string) {
