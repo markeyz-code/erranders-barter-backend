@@ -138,6 +138,14 @@ export class User extends Document {
 
   @Prop({ type: ProviderProfileSchema, required: false })
   providerProfile?: ProviderProfile;
+
+  // Campus Mover role: true if student offers heavy lifting / hostel relocation
+  @Prop({ default: false })
+  isMover: boolean;
+
+  // Campus Fumigation & Clean Gig Crew: true if student enrolled in room fumigation gigs
+  @Prop({ default: false })
+  isFumigationCrew: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

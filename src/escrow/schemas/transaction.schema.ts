@@ -22,6 +22,8 @@ export class Transaction extends Document {
   @Prop() erranderId: string;
   @Prop() erranderOrderId: string;
   @Prop() erranderBidId: string;
+  @Prop() moverId: string;
+  @Prop() moverScheduleSlot: string;
   @Prop() proposedDeliveryFee: number;
   @Prop() paymentReference: string;
   @Prop({ type: String, enum: TransactionStatus, default: TransactionStatus.HELD_IN_ESCROW }) status: TransactionStatus;
