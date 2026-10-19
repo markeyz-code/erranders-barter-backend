@@ -6,6 +6,7 @@ import {
   Post,
   Delete,
   Body,
+  Param,
   UseGuards,
   Req,
   Res,
@@ -106,5 +107,15 @@ export class UsersController {
   @UseGuards(AuthGuard('jwt'))
   async getWithdrawals(@Req() req) {
     return this.usersService.getWithdrawals(req.user.userId);
+  }
+
+  @Get('profile/:id')
+  async getProfileById(@Param('id') id: string) {
+    return this.usersService.getPublicProfile(id);
+  }
+
+  @Get(':id')
+  async getUserById(@Param('id') id: string) {
+    return this.usersService.getPublicProfile(id);
   }
 }

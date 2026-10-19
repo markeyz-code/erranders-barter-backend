@@ -56,6 +56,21 @@ export class UsersService {
     return this.userModel.findById(id).exec();
   }
 
+  async getPublicProfile(id: string): Promise<any> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid user ID');
+    }
+    const user = await this.userModel
+      .findById(id)
+      .select('firstName lastName avatar hostel university level isVerified rating totalTrades isMover isFumigationCrew createdAt providerProfile')
+      .lean()
+      .exec();
+    if (!user) {
+      throw new NotFoundException('User profile not found');
+    }
+    return user;
+  }
+
   async findAll(): Promise<User[]> {
     return this.userModel.find().exec();
   }
