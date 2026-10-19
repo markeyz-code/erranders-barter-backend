@@ -76,4 +76,10 @@ export class BookingsController {
   async reschedule(@Param('id') id: string, @Req() req, @Body() body: RescheduleBookingDto) {
     return this.bookingsService.reschedule(id, req.user.userId, body);
   }
+
+  @Post(':id/pay-balance')
+  @ApiOperation({ summary: 'Student pays remaining balance on completed service to release escrow' })
+  async payBalance(@Param('id') id: string, @Req() req) {
+    return this.bookingsService.payRemainingBalance(id, req.user.userId);
+  }
 }

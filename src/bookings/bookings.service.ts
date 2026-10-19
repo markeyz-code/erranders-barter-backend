@@ -100,6 +100,22 @@ export class BookingsService {
       calculatedAmount = 0;
     }
 
+    // Commitment fee (deposit):
+    // For amounts <= ₦1,000, 100% is commitment fee (remaining balance is 0).
+    // For amounts > ₦1,000, 30% commitment fee (minimum ₦1,000), rounded to nearest ₦50.
+    let commitmentFee = 0;
+    let remainingBalance = 0;
+    if (calculatedAmount > 0) {
+      if (calculatedAmount <= 1000) {
+        commitmentFee = calculatedAmount;
+        remainingBalance = 0;
+      } else {
+        commitmentFee = Math.max(1000, Math.round((calculatedAmount * 0.3) / 50) * 50);
+        if (commitmentFee > calculatedAmount) commitmentFee = calculatedAmount;
+        remainingBalance = calculatedAmount - commitmentFee;
+      }
+    }
+
     const booking = new this.bookingModel({
       serviceId: service._id,
       providerId: service.providerId,
@@ -110,6 +126,12 @@ export class BookingsService {
       durationMinutes,
       bufferMinutes: service.bufferMinutes || 0,
       amount: calculatedAmount,
+      commitmentFee,
+      remainingBalance,
+      commitmentFeePaid: true,
+      remainingBalancePaid: remainingBalance === 0,
+      paymentStatus: remainingBalance === 0 ? 'fully_paid' : 'commitment_paid',
+      payoutReleased: false,
       status: BookingStatus.PENDING,
       notes: typeof dto.notes === 'string' ? dto.notes.trim() : '',
       blocksSlot: true,
@@ -408,15 +430,35 @@ export class BookingsService {
       );
     }
 
+    const hasRemainingBalance = (booking.remainingBalance || 0) > 0;
+    const updatePayload: any = { status: BookingStatus.COMPLETED };
+
+    if (!hasRemainingBalance) {
+      updatePayload.remainingBalancePaid = true;
+      updatePayload.paymentStatus = 'fully_paid';
+      updatePayload.payoutReleased = true;
+    }
+
     const updated = await this.bookingModel
       .findOneAndUpdate(
         { _id: id, status: BookingStatus.CONFIRMED },
-        { $set: { status: BookingStatus.COMPLETED } },
+        { $set: updatePayload },
         { new: true },
       )
       .exec();
     if (!updated) {
       throw new ConflictException('This booking changed state before it could be completed');
+    }
+
+    // If fully paid upfront (e.g. <= ₦1,000), release payout directly to provider's wallet
+    if (!hasRemainingBalance && (booking.amount || 0) > 0) {
+      const commissionRate = 0.05;
+      const providerPayout = Math.round((booking.amount || 0) * (1 - commissionRate));
+      if (providerPayout > 0) {
+        await this.userModel.findByIdAndUpdate(booking.providerId, {
+          $inc: { walletBalance: providerPayout },
+        });
+      }
     }
 
     await Promise.all([
@@ -427,6 +469,106 @@ export class BookingsService {
         .updateOne({ _id: updated.providerId }, { $inc: { 'providerProfile.totalBookings': 1 } })
         .exec(),
     ]);
+
+    // Notify customer
+    void (async () => {
+      try {
+        const [customerUser, providerUser, serviceDoc] = await Promise.all([
+          this.userModel.findById(booking.customerId).select('firstName lastName email').lean().exec(),
+          this.userModel.findById(booking.providerId).select('firstName lastName email').lean().exec(),
+          this.serviceModel.findById(booking.serviceId).select('title').lean().exec(),
+        ]);
+        const providerName = providerUser ? `${providerUser.firstName || ''} ${providerUser.lastName || ''}`.trim() : 'Provider';
+        const serviceTitle = serviceDoc?.title || 'Service';
+
+        const notifMessage = hasRemainingBalance
+          ? `${providerName} marked "${serviceTitle}" as completed. Please pay the remaining balance of ₦${(booking.remainingBalance || 0).toLocaleString()} to release escrow.`
+          : `${providerName} marked "${serviceTitle}" as completed. Thanks for using Decluttered Services!`;
+
+        await this.notificationsService.create({
+          userId: booking.customerId,
+          actorId: booking.providerId,
+          title: 'Service Completed! 🎉',
+          message: notifMessage,
+          type: 'booking_completed',
+          link: '/dashboard/bookings',
+        });
+      } catch (err) {}
+    })();
+
+    return this.findPopulated(id);
+  }
+
+  /**
+   * Student pays the remaining balance on a completed booking, releasing full payment into the provider's wallet.
+   */
+  async payRemainingBalance(id: string, userId: string): Promise<Booking> {
+    const booking = await this.getDocument(id);
+    if (booking.customerId.toString() !== userId) {
+      throw new ForbiddenException('Only the student who booked this service can pay the remaining balance');
+    }
+    if (booking.status !== BookingStatus.COMPLETED && booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException('Remaining balance can only be paid for confirmed or completed bookings');
+    }
+    if (booking.remainingBalancePaid) {
+      throw new BadRequestException('Remaining balance has already been paid');
+    }
+
+    const commissionRate = 0.05; // 5% platform fee
+    const providerPayout = Math.round((booking.amount || 0) * (1 - commissionRate));
+
+    const updated = await this.bookingModel
+      .findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            remainingBalancePaid: true,
+            paymentStatus: 'fully_paid',
+            payoutReleased: true,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    // Credit provider's escrow wallet balance
+    if (providerPayout > 0) {
+      await this.userModel.findByIdAndUpdate(booking.providerId, {
+        $inc: { walletBalance: providerPayout },
+      });
+    }
+
+    // Send notifications to provider
+    void (async () => {
+      try {
+        const [studentUser, providerUser, serviceDoc] = await Promise.all([
+          this.userModel.findById(booking.customerId).select('firstName lastName').lean().exec(),
+          this.userModel.findById(booking.providerId).select('firstName lastName email').lean().exec(),
+          this.serviceModel.findById(booking.serviceId).select('title').lean().exec(),
+        ]);
+        const studentName = studentUser ? `${studentUser.firstName || ''} ${studentUser.lastName || ''}`.trim() : 'Student';
+        const serviceTitle = serviceDoc?.title || 'Service';
+
+        await this.notificationsService.create({
+          userId: booking.providerId,
+          actorId: booking.customerId,
+          title: 'Payment Released! 💰',
+          message: `${studentName} paid the remaining balance of ₦${(booking.remainingBalance || 0).toLocaleString()} for "${serviceTitle}". ₦${providerPayout.toLocaleString()} has been credited to your Escrow Wallet!`,
+          type: 'escrow_released',
+          link: '/dashboard/wallet',
+        });
+
+        if (providerUser?.email) {
+          await this.notificationsService.getEmailService().sendPaymentReleased(
+            providerUser.email,
+            providerUser.firstName || 'Provider',
+            serviceTitle,
+            studentName,
+            providerPayout,
+          );
+        }
+      } catch (err) {}
+    })();
 
     return this.findPopulated(id);
   }

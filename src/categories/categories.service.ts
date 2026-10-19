@@ -41,12 +41,15 @@ export class CategoriesService implements OnModuleInit {
   }
 
   async create(dto: CreateCategoryDto) {
-    const existing = await this.categoryModel.findOne({ name: dto.name.trim() }).exec();
-    if (existing) throw new ConflictException(`Category "${dto.name}" already exists`);
+    const trimmed = dto.name.trim();
+    const existing = await this.categoryModel.findOne({
+      name: { $regex: new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    }).exec();
+    if (existing) return existing;
 
     const category = new this.categoryModel({
-      name: dto.name.trim(),
-      icon: dto.icon?.trim() || 'tag',
+      name: trimmed,
+      icon: dto.icon?.trim() || 'sparkles',
     });
     return category.save();
   }

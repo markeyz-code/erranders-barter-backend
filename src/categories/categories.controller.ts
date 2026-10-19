@@ -33,8 +33,8 @@ export class CategoriesController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), AdminGuard)
-  @ApiOperation({ summary: 'Create a new category (admin only)' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Create a new category (authenticated users)' })
   async create(@Body() dto: CreateCategoryDto) {
     return this.categoriesService.create(dto);
   }

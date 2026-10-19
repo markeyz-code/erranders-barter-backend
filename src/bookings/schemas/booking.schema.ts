@@ -48,6 +48,24 @@ export class Booking extends Document {
   @Prop({ required: true, default: 0 })
   amount: number;
 
+  @Prop({ required: true, default: 0 })
+  commitmentFee: number;
+
+  @Prop({ required: true, default: 0 })
+  remainingBalance: number;
+
+  @Prop({ default: false })
+  commitmentFeePaid: boolean;
+
+  @Prop({ default: false })
+  remainingBalancePaid: boolean;
+
+  @Prop({ type: String, enum: ['unpaid', 'commitment_paid', 'fully_paid'], default: 'unpaid' })
+  paymentStatus: string;
+
+  @Prop({ default: false })
+  payoutReleased: boolean;
+
   @Prop({ type: String, enum: BookingStatus, default: BookingStatus.PENDING, index: true })
   status: BookingStatus;
 

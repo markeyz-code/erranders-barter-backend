@@ -373,6 +373,31 @@ export class EmailService {
     return this.sendEmail(sellerEmail, `Sold Out: ${itemTitle} Payout Released`, html);
   }
 
+  async sendPaymentReleased(
+    providerEmail: string,
+    providerName: string,
+    serviceTitle: string,
+    studentName: string,
+    amount: number,
+  ) {
+    const html = `
+      <h3 style="margin-top: 0; color: #0f172a; font-size: 18px; font-weight: 800;">
+        Payment Released to Your Wallet! 💰🎉
+      </h3>
+      <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+        Hi <strong>${providerName}</strong>, <strong>${studentName}</strong> has completed the remaining balance payment for <strong>"${serviceTitle}"</strong>.
+      </p>
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 4px 0; font-size: 14px; color: #475569;">Service: <strong>${serviceTitle}</strong></p>
+        <p style="margin: 0; font-size: 15px; color: #16a34a; font-weight: 800;">Credited to Escrow Wallet: ₦${amount.toLocaleString()}</p>
+      </div>
+      <p style="font-size: 14px; color: #475569;">
+        The funds have been credited to your Decluttered Wallet balance. You can withdraw anytime to your bank account.
+      </p>
+    `;
+    return this.sendEmail(providerEmail, `Payment Released: ${serviceTitle}`, html);
+  }
+
   async sendDeclutterHostelAlert(
     studentEmail: string,
     studentName: string,
