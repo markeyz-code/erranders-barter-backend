@@ -87,6 +87,9 @@ export class Item extends Document {
   @Prop()
   batchId?: string;
 
+  @Prop()
+  batchTitle?: string;
+
   @Prop({ default: 0 })
   bundleDiscountPercent?: number;
 
