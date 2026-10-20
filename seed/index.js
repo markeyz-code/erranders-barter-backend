@@ -1770,7 +1770,7 @@ const OPERATING_DEFAULTS = {
   },
   freshfold: {
     businessType: 'product',
-    templateId: 'boutique',
+    templateId: 'fresh',
     products: [
       { name: 'Wash & Fold — 5kg bag', description: 'Next-day turnaround.', sku: 'FD-WF-05', costPrice: 900, sellPrice: 2500, stock: 40, lowStockThreshold: 10, images: [] },
       { name: 'Ironing only — 10 pieces', description: 'Pressed and bagged.', sku: 'FD-IR-10', costPrice: 500, sellPrice: 1800, stock: 6, lowStockThreshold: 8, images: [] },

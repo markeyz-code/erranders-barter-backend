@@ -436,7 +436,13 @@ export class BusinessOperationsService {
   async listTemplates(userId: string) {
     const business: any = await this.ownedBusiness(userId);
     const type = business.businessType || BusinessType.SERVICE;
-    const recommended = business.templateId || defaultTemplateFor(type);
+    // A stored id is only honoured if that template still exists — a template can be
+    // retired, and a business left pointing at one would show nothing as "in use".
+    const known = PAGE_TEMPLATES.some((template) => template.id === business.templateId);
+    // Category first (nail, tutorial, laundry…), type as the fallback signal.
+    const recommended = known
+      ? business.templateId
+      : defaultTemplateFor(business.category || '', type);
 
     return {
       businessType: type,

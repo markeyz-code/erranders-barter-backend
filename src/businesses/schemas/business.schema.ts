@@ -198,6 +198,13 @@ export interface BusinessAutomation {
   bufferMinutes: number;
 }
 
+export interface StudyModeConfig {
+  isActive: boolean;
+  notice?: string;
+  autoReply?: string;
+  lectureSchedule?: { day: string; start: string; end: string }[];
+}
+
 /**
  * A business vendor account — the "company" counterpart of an individual provider.
  *
@@ -415,6 +422,36 @@ export class Business extends Document {
     }),
   })
   automation: BusinessAutomation;
+
+  @Prop({
+    type: {
+      isActive: { type: Boolean, default: false },
+      notice: {
+        type: String,
+        default: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+      },
+      autoReply: {
+        type: String,
+        default: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+      },
+      lectureSchedule: [
+        {
+          day: { type: String, default: '' },
+          start: { type: String, default: '' },
+          end: { type: String, default: '' },
+          _id: false,
+        },
+      ],
+    },
+    default: () => ({
+      isActive: false,
+      notice: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+      autoReply: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+      lectureSchedule: [],
+    }),
+    _id: false,
+  })
+  studyMode: StudyModeConfig;
 
   @Prop({ default: 0 })
   rating: number;
