@@ -18,6 +18,8 @@ import { Booking, BookingStatus } from '../bookings/schemas/booking.schema';
 import { Service } from '../services/schemas/service.schema';
 import { User } from '../users/schemas/user.schema';
 import { EmailService } from '../notifications/email.service';
+import { AuthService } from '../auth/auth.service';
+import * as bcrypt from 'bcrypt';
 import { SettingsService } from '../settings/settings.service';
 import { ApplyBusinessDto } from './dto/apply-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
@@ -99,6 +101,7 @@ export class BusinessesService {
     @InjectModel(Service.name) private serviceModel: Model<any>,
     private readonly settingsService: SettingsService,
     private readonly emailService: EmailService,
+    private readonly authService: AuthService,
     @InjectModel(User.name) private userModel: Model<any>,
   ) {}
 
@@ -205,6 +208,85 @@ export class BusinessesService {
       this.logger.warn(
         `Could not send the business admin invite for ${business?.slug}: ${error?.message || error}`,
       );
+    }
+  }
+
+
+  /**
+   * Self-serve signup: create the owner account AND the business in one step.
+   *
+   * This is what makes the platform multitenant without an operator: a business owner
+   * arrives at business.erranders.org, picks the business they run, and is managing it
+   * moments later.
+   *
+   * Two rules make it safe:
+   *  - if the business cannot be created (slug taken), the account just created is
+   *    removed again, so a failed signup never leaves an orphan login; and
+   *  - the whole thing is refused if the email already has an account, because silently
+   *    attaching a second business to an existing login would be a tenant mix-up.
+   */
+  async signup(dto: any) {
+    const firstName = this.requireText(dto?.firstName, 'firstName', 60);
+    const lastName = this.requireText(dto?.lastName, 'lastName', 60);
+    const email = String(dto?.email || '').trim().toLowerCase();
+    const password = String(dto?.password || '');
+
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      throw new BadRequestException('Please provide a valid email address.');
+    }
+    if (password.length < 8) {
+      throw new BadRequestException('Your password must be at least 8 characters.');
+    }
+
+    const existing = await this.userModel.findOne({ email }).lean().exec();
+    if (existing) {
+      throw new ConflictException(
+        'An account with that email already exists. Sign in instead, or use another email.',
+      );
+    }
+
+    let createdUser: any = null;
+    try {
+      const hashed = await bcrypt.hash(password, 12);
+      createdUser = await this.userModel.create({
+        firstName,
+        lastName,
+        email,
+        password: hashed,
+        isVerified: false,
+        isActive: true,
+        university: String(dto?.university || '').trim(),
+      });
+
+      const business = await this.apply(createdUser._id.toString(), {
+        name: dto?.businessName,
+        slug: dto?.slug,
+        category: dto?.category,
+        description: dto?.description,
+        phone: dto?.businessPhone,
+        email: dto?.businessEmail || email,
+        address: dto?.address,
+      });
+
+      // `apply` already emails the admin invite through sendAdminInvite.
+      const token = this.authService.issueTokenFor(createdUser);
+
+      return {
+        ...token,
+        business,
+      };
+    } catch (error) {
+      // Roll the account back so a taken slug does not leave a login with no business.
+      if (createdUser?._id) {
+        try {
+          await this.userModel.deleteOne({ _id: createdUser._id }).exec();
+        } catch (cleanupError: any) {
+          this.logger.error(
+            `Could not roll back user ${createdUser._id} after a failed business signup: ${cleanupError?.message}`,
+          );
+        }
+      }
+      throw error;
     }
   }
 

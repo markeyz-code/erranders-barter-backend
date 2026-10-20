@@ -11,6 +11,7 @@ import { Booking, BookingSchema } from '../bookings/schemas/booking.schema';
 import { Service, ServiceSchema } from '../services/schemas/service.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
 
 /**
@@ -24,6 +25,7 @@ import { SettingsModule } from '../settings/settings.module';
 @Module({
   imports: [
     SettingsModule,
+    AuthModule,
     NotificationsModule,
     MongooseModule.forFeature([
       { name: Business.name, schema: BusinessSchema },

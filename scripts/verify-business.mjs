@@ -52,6 +52,58 @@ const login = async (email) => {
 };
 
 const run = async () => {
+  // ── Self-serve signup (multitenancy) ─────────────────────────────────────
+  console.log('\nSIGNUP');
+
+  const stamp = Date.now();
+  const newEmail = `verify-owner-${stamp}@barter.test`;
+  const newSlug = `verify-co-${String(stamp).slice(-6)}`;
+
+  const signup = await call('POST', '/businesses/signup', {
+    body: {
+      firstName: 'Verify',
+      lastName: 'Owner',
+      email: newEmail,
+      password: PASSWORD,
+      businessName: 'Verify Co',
+      slug: newSlug,
+      category: 'cleaning',
+      description: 'Created by the verification suite.',
+      businessPhone: '08011112222',
+      address: 'Akoka, Lagos',
+    },
+  });
+  ok('POST /businesses/signup creates account + business', signup.status === 201 || signup.status === 200, `HTTP ${signup.status}`);
+  ok('  signup returns a session', Boolean(signup.data?.access_token));
+  ok('  signup returns the business', signup.data?.business?.slug === newSlug);
+
+  const duplicateEmail = await call('POST', '/businesses/signup', {
+    body: {
+      firstName: 'Verify', lastName: 'Owner', email: newEmail, password: PASSWORD,
+      businessName: 'Other', slug: `other-${stamp}`, category: 'cleaning', description: 'x',
+    },
+  });
+  ok('a duplicate email is refused', duplicateEmail.status === 409, `HTTP ${duplicateEmail.status}`);
+
+  const takenSlug = await call('POST', '/businesses/signup', {
+    body: {
+      firstName: 'Bola', lastName: 'Eze', email: `orphan-${stamp}@barter.test`, password: PASSWORD,
+      businessName: 'Taken', slug: 'fumigpro', category: 'cleaning', description: 'x',
+    },
+  });
+  ok('a taken address is refused', takenSlug.status === 409, `HTTP ${takenSlug.status}`);
+
+  // A failed signup must not leave a login behind.
+  const orphan = await call('POST', '/auth/login', {
+    body: { email: `orphan-${stamp}@barter.test`, password: PASSWORD },
+  });
+  ok('  a failed signup leaves no orphan account', orphan.status === 401, `HTTP ${orphan.status}`);
+
+  if (signup.data?.access_token) {
+    const me = await call('GET', '/businesses/me', { token: signup.data.access_token });
+    ok('the new owner reaches their own dashboard', me.data?.slug === newSlug);
+  }
+
   const token = await login('fumigpro@barter.test');
   if (!token) {
     console.log('\n  Cannot sign in as the seeded business owner — is the database seeded?');

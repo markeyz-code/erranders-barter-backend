@@ -796,6 +796,9 @@ const ITEMS = [
     images: [
       'https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?auto=format&fit=crop&q=80&w=800',
     ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/dog.mp4',
+    ],
   },
   {
     key: 'fan',
@@ -809,6 +812,9 @@ const ITEMS = [
     category: 'Electronics',
     images: [
       'https://images.unsplash.com/photo-1616788289417-0ec997a9f73f?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/sea_turtle.mp4',
     ],
   },
   {
@@ -825,6 +831,9 @@ const ITEMS = [
     images: [
       'https://images.unsplash.com/photo-1595959183082-7b570b7e08e2?auto=format&fit=crop&q=80&w=800',
     ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/elephants.mp4',
+    ],
   },
   {
     key: 'lamp',
@@ -838,6 +847,9 @@ const ITEMS = [
     category: 'Electronics',
     images: [
       'https://images.unsplash.com/photo-1507369512168-9b7ed6cfce4a?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
     ],
   },
   {
@@ -866,6 +878,9 @@ const ITEMS = [
     category: 'Electronics',
     images: [
       'https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/dog.mp4',
     ],
   },
   {
@@ -909,6 +924,9 @@ const ITEMS = [
     images: [
       'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&q=80&w=800',
     ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/v1580231908/samples/cld-sample-video.mp4',
+    ],
   },
   {
     key: 'textbook',
@@ -924,6 +942,9 @@ const ITEMS = [
     images: [
       'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800',
     ],
+    videos: [
+      'https://www.w3schools.com/html/mov_bbb.mp4',
+    ],
   },
   {
     key: 'controller',
@@ -938,6 +959,43 @@ const ITEMS = [
     category: 'Gaming',
     images: [
       'https://images.unsplash.com/photo-1526509867162-5b0c0d1b4b33?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/dog.mp4',
+    ],
+  },
+  {
+    key: 'mirror',
+    owner: 'seller',
+    title: 'Full-Length Dorm Room Mirror',
+    description: 'Standing wooden frame mirror. Perfect for checking fits before class.',
+    price: 9500,
+    type: 'sell',
+    status: 'active',
+    location: 'Moremi Hall, UNILAG',
+    category: 'Furniture',
+    images: [
+      'https://images.unsplash.com/photo-1618220179428-22790b461013?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/sea_turtle.mp4',
+    ],
+  },
+  {
+    key: 'cooker',
+    owner: 'buyer',
+    title: 'Double Burner Gas Cooker + Regulator',
+    description: 'Fast cooking blue flames, used 1 semester. Includes safety hose.',
+    price: 22000,
+    type: 'sell',
+    status: 'active',
+    location: 'Jaja Hall, UNILAG',
+    category: 'Appliances',
+    images: [
+      'https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?auto=format&fit=crop&q=80&w=800',
+    ],
+    videos: [
+      'https://res.cloudinary.com/demo/video/upload/w_400,h_600,c_fill/elephants.mp4',
     ],
   },
 ];

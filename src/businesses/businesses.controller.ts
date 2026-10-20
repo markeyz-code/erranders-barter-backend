@@ -31,6 +31,12 @@ export class BusinessesController {
     return this.businessesService.apply(req.user.userId, body);
   }
 
+  @Post('signup')
+  @ApiOperation({ summary: 'Self-serve: create an owner account and its business in one step' })
+  async signup(@Body() body: any) {
+    return this.businessesService.signup(body);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Public directory of active businesses (optionally by category)' })
   async listPublic(@Query() query: any) {

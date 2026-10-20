@@ -146,6 +146,14 @@ export class AuthService {
     }
   }
 
+  /**
+   * Public wrapper used when a signup is completed outside this service (business
+   * onboarding creates the account and the business together).
+   */
+  issueTokenFor(user: any) {
+    return this.generateToken(user);
+  }
+
   private generateToken(user: any) {
     const payload = { sub: user._id, email: user.email };
     return {
