@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SupportController } from './support.controller';
+import { AdminSupportController } from './admin-support.controller';
+import { AdminGuard } from '../admin/admin.guard';
 import { SupportService } from './support.service';
 import { Report, ReportSchema } from './schemas/report.schema';
 import { SupportTicket, SupportTicketSchema } from './schemas/support-ticket.schema';
@@ -14,8 +16,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
       { name: SupportTicket.name, schema: SupportTicketSchema },
     ]),
   ],
-  controllers: [SupportController],
-  providers: [SupportService],
+  controllers: [SupportController, AdminSupportController],
+  providers: [SupportService, AdminGuard],
   exports: [SupportService],
 })
 export class SupportModule {}

@@ -141,4 +141,96 @@ export class SupportService {
 
     return { reference, status: ticket.status };
   }
+
+  // ── Admin: work the queue ──────────────────────────────────────────────────
+
+  /** The moderation queue, newest first, with the reporter attached for context. */
+  async listReports(query: any) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+
+    const filter: Record<string, unknown> = {};
+    if (query?.status) filter.status = String(query.status);
+    if (query?.reason) filter.reason = String(query.reason);
+    if (query?.targetType) filter.targetType = String(query.targetType);
+
+    const [rows, total] = await Promise.all([
+      this.reportModel
+        .find(filter)
+        .populate('reporterId', 'firstName lastName email')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.reportModel.countDocuments(filter).exec(),
+    ]);
+
+    return {
+      data: rows,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  }
+
+  async resolveReport(reportId: string, dto: any) {
+    if (!Types.ObjectId.isValid(reportId)) throw new BadRequestException('Report not found');
+
+    const status = String(dto?.status || '');
+    if (!Object.values(ReportStatus).includes(status as ReportStatus)) {
+      throw new BadRequestException(
+        `status must be one of: ${Object.values(ReportStatus).join(', ')}`,
+      );
+    }
+
+    const updated = await this.reportModel
+      .findByIdAndUpdate(
+        reportId,
+        { $set: { status, adminNote: String(dto?.adminNote || '').slice(0, 1000) } },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    if (!updated) throw new BadRequestException('Report not found');
+    return updated;
+  }
+
+  async listTickets(query: any) {
+    const filter: Record<string, unknown> = {};
+    if (query?.status) filter.status = String(query.status);
+
+    return this.ticketModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(200, Number(query?.limit) || 100))
+      .lean()
+      .exec();
+  }
+
+  async updateTicket(ticketId: string, dto: any) {
+    if (!Types.ObjectId.isValid(ticketId)) throw new BadRequestException('Ticket not found');
+
+    const set: Record<string, unknown> = {};
+    if (typeof dto?.reply === 'string') set.reply = dto.reply.slice(0, 4000);
+    if (typeof dto?.status === 'string') {
+      if (!Object.values(TicketStatus).includes(dto.status as TicketStatus)) {
+        throw new BadRequestException('Invalid ticket status.');
+      }
+      set.status = dto.status;
+    }
+    if (!Object.keys(set).length) throw new BadRequestException('No updatable fields provided.');
+
+    const updated = await this.ticketModel.findByIdAndUpdate(ticketId, { $set: set }, { new: true }).lean().exec();
+    if (!updated) throw new BadRequestException('Ticket not found');
+
+    // A reply is only useful if it reaches the person who asked.
+    if (set.reply) {
+      this.emailService
+        .sendEmail((updated as any).email, `Re: ${(updated as any).subject}`, `<p>${set.reply}</p>`)
+        .catch((error) => this.logger.warn(`Could not email the ticket reply: ${error?.message}`));
+    }
+
+    return updated;
+  }
+
 }
