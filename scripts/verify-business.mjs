@@ -124,14 +124,19 @@ const run = async () => {
   ok('the public page lists an open role', Boolean(openRole));
 
   if (openRole) {
-    const email = `verify-${Date.now()}@barter.test`;
+    // Unique identity per run: hiring is idempotent on name+phone, so a fixed phone
+    // would make the second run look like a failure when it is behaving correctly.
+    const stamp = Date.now();
+    const email = `verify-${stamp}@barter.test`;
+    const phone = `080${String(stamp).slice(-8)}`;
+    const name = `Verify Candidate ${String(stamp).slice(-5)}`;
     const application = await call('POST', `/businesses/fumigpro/openings/${openRole._id}/apply`, {
-      body: { name: 'Verify Candidate', email, phone: '08011112222', message: 'Available weekends.' },
+      body: { name, email, phone, message: 'Available weekends.' },
     });
     ok('a candidate can apply without an account', application.status === 201 || application.status === 200, `HTTP ${application.status}`);
 
     const duplicate = await call('POST', `/businesses/fumigpro/openings/${openRole._id}/apply`, {
-      body: { name: 'Verify Candidate', email },
+      body: { name, email },
     });
     ok('applying twice for one role is refused', duplicate.status === 400, `HTTP ${duplicate.status}`);
 
