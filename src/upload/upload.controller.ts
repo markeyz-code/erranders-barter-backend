@@ -22,7 +22,7 @@ export class UploadController {
   @Post('video')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a video' })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }))
   async uploadVideo(@UploadedFile() file: Express.Multer.File) {
     return this.uploadService.uploadFile(file, 'video');
   }
@@ -30,7 +30,7 @@ export class UploadController {
   @Post()
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a file with ?resourceType=image|video|raw|audio' })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }))
   async uploadByResourceType(
     @UploadedFile() file: Express.Multer.File,
     @Query('resourceType') resourceType?: string,
