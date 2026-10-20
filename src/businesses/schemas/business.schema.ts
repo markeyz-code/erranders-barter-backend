@@ -31,6 +31,79 @@ export interface JobOpening {
   isOpen: boolean;
 }
 
+/** Where a candidate is in the hiring pipeline. */
+export enum ApplicationStatus {
+  NEW = 'new',
+  SHORTLISTED = 'shortlisted',
+  HIRED = 'hired',
+  REJECTED = 'rejected',
+}
+
+/**
+ * A person who applied to one of the business's openings.
+ *
+ * Applications are stored on the business rather than on the opening so the owner has one
+ * inbox to work through, and so an application survives the opening being edited or closed.
+ */
+export interface JobApplication {
+  _id?: Types.ObjectId;
+  openingId?: Types.ObjectId;
+  openingTitle: string;
+  name: string;
+  email: string;
+  phone?: string;
+  message?: string;
+  status: ApplicationStatus;
+  note?: string;
+  createdAt?: Date;
+}
+
+/** Payout lifecycle. Only `paid` means the money has actually left. */
+export enum PayoutStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  PAID = 'paid',
+  FAILED = 'failed',
+}
+
+export interface BusinessPayout {
+  _id?: Types.ObjectId;
+  amount: number;
+  status: PayoutStatus;
+  /** Human-readable reason when a payout fails, shown to the owner. */
+  failureReason?: string;
+  requestedAt?: Date;
+  processedAt?: Date;
+}
+
+/** A physical branch. A business that scales opens more than one. */
+export interface BusinessLocation {
+  _id?: Types.ObjectId;
+  name: string;
+  address?: string;
+  phone?: string;
+  isActive: boolean;
+}
+
+/**
+ * How much the business wants the platform to do on its behalf.
+ *
+ * These are switches the owner controls; the booking path reads them. Defaults are the
+ * conservative ones — nothing is auto-accepted until the owner asks for it.
+ */
+export interface BusinessAutomation {
+  /** Accept a new booking immediately instead of waiting for a human. */
+  autoAccept: boolean;
+  /** Assign the booking to an active crew member on creation. */
+  autoAssign: boolean;
+  /** How far ahead a job must be to be accepted automatically, in minutes. */
+  leadTimeMinutes: number;
+  /** Cap on jobs accepted on any one day. 0 = no cap. */
+  maxDailyJobs: number;
+  /** Gap left after a job before the next one can start. */
+  bufferMinutes: number;
+}
+
 /**
  * A business vendor account — the "company" counterpart of an individual provider.
  *
@@ -119,6 +192,73 @@ export class Business extends Document {
     default: [],
   })
   openings: JobOpening[];
+
+  @Prop({
+    type: [
+      {
+        openingId: { type: MongooseSchema.Types.ObjectId },
+        openingTitle: { type: String, default: '' },
+        name: { type: String, required: true, trim: true },
+        email: { type: String, required: true, lowercase: true, trim: true },
+        phone: { type: String, trim: true },
+        message: { type: String, default: '' },
+        status: {
+          type: String,
+          enum: ApplicationStatus,
+          default: ApplicationStatus.NEW,
+        },
+        note: { type: String, default: '' },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  applications: JobApplication[];
+
+  @Prop({
+    type: [
+      {
+        amount: { type: Number, required: true, min: 0 },
+        status: { type: String, enum: PayoutStatus, default: PayoutStatus.PENDING },
+        failureReason: { type: String, default: '' },
+        requestedAt: { type: Date, default: Date.now },
+        processedAt: { type: Date },
+      },
+    ],
+    default: [],
+  })
+  payouts: BusinessPayout[];
+
+  @Prop({
+    type: [
+      {
+        name: { type: String, required: true, trim: true },
+        address: { type: String, default: '' },
+        phone: { type: String, default: '' },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+    default: [],
+  })
+  locations: BusinessLocation[];
+
+  @Prop({
+    type: {
+      autoAccept: { type: Boolean, default: false },
+      autoAssign: { type: Boolean, default: false },
+      leadTimeMinutes: { type: Number, default: 120, min: 0 },
+      maxDailyJobs: { type: Number, default: 0, min: 0 },
+      bufferMinutes: { type: Number, default: 0, min: 0 },
+    },
+    default: () => ({
+      autoAccept: false,
+      autoAssign: false,
+      leadTimeMinutes: 120,
+      maxDailyJobs: 0,
+      bufferMinutes: 0,
+    }),
+  })
+  automation: BusinessAutomation;
 
   @Prop({ default: 0 })
   rating: number;

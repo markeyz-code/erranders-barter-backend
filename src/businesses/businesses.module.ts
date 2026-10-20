@@ -3,6 +3,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { BusinessesController } from './businesses.controller';
 import { AdminBusinessesController } from './admin-businesses.controller';
 import { BusinessesService } from './businesses.service';
+import { BusinessOperationsService } from './business-operations.service';
+import { BusinessOperationsController } from './business-operations.controller';
+import { PublicApplicationsController } from './public-applications.controller';
 import { Business, BusinessSchema } from './schemas/business.schema';
 import { Booking, BookingSchema } from '../bookings/schemas/booking.schema';
 import { Service, ServiceSchema } from '../services/schemas/service.schema';
@@ -29,8 +32,8 @@ import { SettingsModule } from '../settings/settings.module';
       { name: User.name, schema: UserSchema },
     ]),
   ],
-  controllers: [BusinessesController, AdminBusinessesController],
-  providers: [BusinessesService],
+  controllers: [BusinessesController, AdminBusinessesController, BusinessOperationsController, PublicApplicationsController],
+  providers: [BusinessesService, BusinessOperationsService],
   exports: [BusinessesService],
 })
 export class BusinessesModule {}

@@ -370,6 +370,46 @@ const BusinessSchema = new mongoose.Schema(
         isActive: { type: Boolean, default: true },
       },
     ],
+    // Mirrors src/businesses/schemas/business.schema.ts. The seed defines its own schemas,
+    // and strict mode silently drops anything missing here — which is exactly how the
+    // operating fields below were lost the first time.
+    automation: {
+      autoAccept: { type: Boolean, default: false },
+      autoAssign: { type: Boolean, default: false },
+      leadTimeMinutes: { type: Number, default: 120 },
+      maxDailyJobs: { type: Number, default: 0 },
+      bufferMinutes: { type: Number, default: 0 },
+    },
+    locations: [
+      {
+        name: { type: String, required: true },
+        address: String,
+        phone: String,
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+    applications: [
+      {
+        openingId: { type: mongoose.Schema.Types.ObjectId },
+        openingTitle: String,
+        name: { type: String, required: true },
+        email: { type: String, required: true, lowercase: true },
+        phone: String,
+        message: String,
+        status: { type: String, default: 'new' },
+        note: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    payouts: [
+      {
+        amount: { type: Number, required: true },
+        status: { type: String, default: 'pending' },
+        failureReason: String,
+        requestedAt: { type: Date, default: Date.now },
+        processedAt: Date,
+      },
+    ],
     openings: [
       {
         title: { type: String, required: true },
@@ -1584,6 +1624,91 @@ const BOOKINGS = [
 // `owner` is a USERS key. `commissionRate` is the percent Erranders keeps (admin-set in the
 // app); `staff[].user`, when present, links that person to a seeded account — the link the
 // earnings ledger attributes their completed bookings through.
+
+/**
+ * Operating data for the seeded businesses: how much they let the platform do on their
+ * behalf, where they work from, and who is waiting in the recruitment inbox.
+ *
+ * This is seed content only — the application code never defaults to a branch or an
+ * application.
+ */
+const OPERATING_DEFAULTS = {
+  fumigpro: {
+    automation: {
+      autoAccept: true,
+      autoAssign: false,
+      leadTimeMinutes: 180,
+      maxDailyJobs: 6,
+      bufferMinutes: 30,
+    },
+    locations: [
+      { name: 'Akoka HQ', address: '12 Ogunlana Drive, Akoka', phone: '08034567812', isActive: true },
+      { name: 'Yaba Annex', address: '24 University Road, Yaba', phone: '08034567813', isActive: true },
+    ],
+    applications: [
+      {
+        openingTitle: 'Fumigation Technician',
+        name: 'Adaeze Nwosu',
+        email: 'adaeze.nwosu@example.com',
+        phone: '08031112222',
+        message: 'I have two years of pest-control experience and I am available on weekends.',
+        status: 'new',
+      },
+      {
+        openingTitle: 'Fumigation Technician',
+        name: 'Emeka Obi',
+        email: 'emeka.obi@example.com',
+        phone: '08033334444',
+        message: 'NISP-certified. Can start immediately.',
+        status: 'shortlisted',
+      },
+      {
+        openingTitle: 'Campus Sales Rep',
+        name: 'Tolu Adebayo',
+        email: 'tolu.adebayo@example.com',
+        phone: '08035556666',
+        message: 'I already sell to three halls.',
+        status: 'new',
+      },
+    ],
+  },
+  freshfold: {
+    automation: {
+      autoAccept: false,
+      autoAssign: true,
+      leadTimeMinutes: 120,
+      maxDailyJobs: 10,
+      bufferMinutes: 15,
+    },
+    locations: [
+      { name: 'Main Laundry', address: 'Fagunwa Hall basement', phone: '08039998888', isActive: true },
+    ],
+    applications: [
+      {
+        openingTitle: 'Laundry Attendant',
+        name: 'Blessing Eze',
+        email: 'blessing.eze@example.com',
+        phone: '08037778888',
+        message: 'Available every morning before lectures.',
+        status: 'new',
+      },
+    ],
+  },
+  campusmove: {
+    automation: {
+      autoAccept: false,
+      autoAssign: false,
+      leadTimeMinutes: 240,
+      maxDailyJobs: 4,
+      bufferMinutes: 45,
+    },
+    locations: [
+      { name: 'Jaja Hall Depot', address: 'Jaja Hall, Block B', phone: '08036667777', isActive: true },
+    ],
+    applications: [],
+  },
+};
+
 const BUSINESSES = [
   {
     key: 'fumigpro',
@@ -2130,11 +2255,23 @@ async function upsertBusinesses(users) {
       ...(user ? { userId: users[user]._id } : {}),
     }));
 
+    // Automation, branches and applications are demo content owned by this file, so they
+    // are replaced on every run just like staff and openings.
+    const operating = OPERATING_DEFAULTS[key] || {};
+
     // Matched on ownerId, not slug, so the business keeps its identity when a slug is edited.
-    // Staff and openings are fully owned by this file, so they are replaced on every run.
     const doc = await Business.findOneAndUpdate(
       { ownerId },
-      { $set: { ...fields, ownerId, staff } },
+      {
+        $set: {
+          ...fields,
+          ownerId,
+          staff,
+          ...(operating.automation ? { automation: operating.automation } : {}),
+          ...(operating.locations ? { locations: operating.locations } : {}),
+          ...(operating.applications ? { applications: operating.applications } : {}),
+        },
+      },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     byKey[key] = doc;
@@ -2259,8 +2396,9 @@ async function main() {
     `  ${BUSINESSES.length} businesses with ` +
       `${BUSINESSES.reduce((total, entry) => total + entry.staff.length, 0)} staff, ` +
       `${BUSINESSES.reduce((total, entry) => total + entry.openings.length, 0)} openings and ` +
-      `commission rates of ${BUSINESSES.map((entry) => `${entry.commissionRate}%`).join(' / ')} ` +
-      '(completed work included).',
+      `commission rates of ${BUSINESSES.map((entry) => `${entry.commissionRate}%`).join(' / ')}, ` +
+      `${Object.values(OPERATING_DEFAULTS).reduce((n, b) => n + (b.locations?.length || 0), 0)} branches and ` +
+      `${Object.values(OPERATING_DEFAULTS).reduce((n, b) => n + (b.applications?.length || 0), 0)} applications.`,
   );
   console.log('\nAdmin sign-in: admin@barter.test has isAdmin set on the account.\n');
 }
