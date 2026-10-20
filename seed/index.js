@@ -359,6 +359,33 @@ const BusinessSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     isVerified: { type: Boolean, default: false },
     commissionRate: { type: Number, default: 0, min: 0, max: 50 },
+    businessType: { type: String, default: 'service' },
+    templateId: { type: String, default: '' },
+    products: [
+      {
+        name: { type: String, required: true },
+        description: String,
+        sku: String,
+        costPrice: { type: Number, default: 0 },
+        sellPrice: { type: Number, default: 0 },
+        stock: { type: Number, default: 0 },
+        lowStockThreshold: { type: Number, default: 3 },
+        images: { type: [String], default: [] },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+    resources: [
+      {
+        title: { type: String, required: true },
+        description: String,
+        kind: { type: String, default: 'file' },
+        url: { type: String, required: true },
+        grantedEmails: { type: [String], default: [] },
+        isActive: { type: Boolean, default: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    page: { type: Object },
     // `userId` links a staff member to a platform account; that is the join the earnings
     // ledger attributes their completed bookings through.
     staff: [
@@ -1692,6 +1719,17 @@ const BOOKINGS = [
  */
 const OPERATING_DEFAULTS = {
   fumigpro: {
+    businessType: 'service',
+    templateId: 'fresh',
+    products: [
+      { name: 'Bed Bug Treatment Kit', description: 'Mattress and frame treatment in one visit.', sku: 'FUM-BB-01', costPrice: 4200, sellPrice: 15000, stock: 12, lowStockThreshold: 3, images: [] },
+      { name: 'Post-Treatment Deep Clean', description: 'Full room clean after fumigation.', sku: 'FUM-DC-01', costPrice: 2600, sellPrice: 8000, stock: 8, lowStockThreshold: 2, images: [] },
+      { name: 'Single Room Fumigation', description: 'Standard hostel room.', sku: 'FUM-SR-01', costPrice: 3900, sellPrice: 12000, stock: 2, lowStockThreshold: 4, images: [] },
+    ],
+    resources: [
+      { title: 'Safety checklist before treatment', description: 'What to move and cover before the crew arrives.', kind: 'file', url: 'https://files.erranders.org/fumigpro/safety-checklist.pdf', grantedEmails: [], isActive: true },
+      { title: 'Re-treatment guarantee terms', description: 'What the 30-day guarantee covers.', kind: 'file', url: 'https://files.erranders.org/fumigpro/guarantee.pdf', grantedEmails: [], isActive: true },
+    ],
     automation: {
       autoAccept: true,
       autoAssign: false,
@@ -1731,6 +1769,13 @@ const OPERATING_DEFAULTS = {
     ],
   },
   freshfold: {
+    businessType: 'product',
+    templateId: 'boutique',
+    products: [
+      { name: 'Wash & Fold — 5kg bag', description: 'Next-day turnaround.', sku: 'FD-WF-05', costPrice: 900, sellPrice: 2500, stock: 40, lowStockThreshold: 10, images: [] },
+      { name: 'Ironing only — 10 pieces', description: 'Pressed and bagged.', sku: 'FD-IR-10', costPrice: 500, sellPrice: 1800, stock: 6, lowStockThreshold: 8, images: [] },
+    ],
+    resources: [],
     automation: {
       autoAccept: false,
       autoAssign: true,
@@ -1753,6 +1798,12 @@ const OPERATING_DEFAULTS = {
     ],
   },
   campusmove: {
+    businessType: 'tutorial',
+    templateId: 'academy',
+    products: [],
+    resources: [
+      { title: 'Moving day checklist', description: 'Pack in the right order and save a trip.', kind: 'file', url: 'https://files.erranders.org/campusmove/moving-checklist.pdf', grantedEmails: [], isActive: true },
+    ],
     automation: {
       autoAccept: false,
       autoAssign: false,
@@ -2325,6 +2376,10 @@ async function upsertBusinesses(users) {
           ...fields,
           ownerId,
           staff,
+          ...(operating.businessType ? { businessType: operating.businessType } : {}),
+          ...(operating.templateId ? { templateId: operating.templateId } : {}),
+          ...(operating.products ? { products: operating.products } : {}),
+          ...(operating.resources ? { resources: operating.resources } : {}),
           ...(operating.automation ? { automation: operating.automation } : {}),
           ...(operating.locations ? { locations: operating.locations } : {}),
           ...(operating.applications ? { applications: operating.applications } : {}),

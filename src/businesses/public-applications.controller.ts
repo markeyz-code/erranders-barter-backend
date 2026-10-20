@@ -1,6 +1,8 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BusinessOperationsService } from './business-operations.service';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 
 /**
  * Public job application.
@@ -23,5 +25,17 @@ export class PublicApplicationsController {
     @Body() body: any,
   ) {
     return this.operations.applyToOpening(slug, openingId, body);
+  }
+
+  /**
+   * What a signed-in student may open from this business's library.
+   *
+   * The guard is optional: without a token the response is empty rather than a 401, so
+   * the page can still show the public profile before anyone signs in.
+   */
+  @Get(':slug/resources')
+  @UseGuards(OptionalJwtAuthGuard)
+  async resources(@Param('slug') slug: string, @Req() req) {
+    return this.operations.listResourcesForStudent(slug, req.user?.email);
   }
 }

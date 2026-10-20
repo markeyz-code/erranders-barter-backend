@@ -48,6 +48,85 @@ export class BusinessOperationsController {
     return this.operations.requestPayout(req.user.userId, body);
   }
 
+
+  // ── Templates & business type ──────────────────────────────────────────────
+
+  @Get('templates')
+  @ApiOperation({ summary: 'Page templates, with the one that suits this business recommended' })
+  async templates(@Req() req) {
+    return this.operations.listTemplates(req.user.userId);
+  }
+
+  @Post('page/template')
+  @ApiOperation({ summary: 'Apply a template, replacing the current page design' })
+  async applyTemplate(@Req() req, @Body() body: any) {
+    return this.operations.applyTemplate(req.user.userId, body);
+  }
+
+  @Patch('type')
+  @ApiOperation({ summary: 'Set what kind of business this is' })
+  async setType(@Req() req, @Body() body: any) {
+    return this.operations.setBusinessType(req.user.userId, body);
+  }
+
+  // ── Products & inventory ───────────────────────────────────────────────────
+
+  @Get('products')
+  @ApiOperation({ summary: 'Catalogue with profit, margin and stock value' })
+  async products(@Req() req) {
+    return this.operations.listProducts(req.user.userId);
+  }
+
+  @Post('products')
+  @ApiOperation({ summary: 'Add a product' })
+  async addProduct(@Req() req, @Body() body: any) {
+    return this.operations.addProduct(req.user.userId, body);
+  }
+
+  @Patch('products/:id')
+  @ApiOperation({ summary: 'Update a product' })
+  async updateProduct(@Req() req, @Param('id') id: string, @Body() body: any) {
+    return this.operations.updateProduct(req.user.userId, id, body);
+  }
+
+  @Patch('products/:id/stock')
+  @ApiOperation({ summary: 'Adjust stock by a delta (+/-)' })
+  async adjustStock(@Req() req, @Param('id') id: string, @Body() body: any) {
+    return this.operations.adjustStock(req.user.userId, id, body);
+  }
+
+  @Delete('products/:id')
+  @ApiOperation({ summary: 'Remove a product' })
+  async removeProduct(@Req() req, @Param('id') id: string) {
+    return this.operations.removeProduct(req.user.userId, id);
+  }
+
+  // ── Resources ──────────────────────────────────────────────────────────────
+
+  @Get('resources')
+  @ApiOperation({ summary: "The owner's resource library" })
+  async resources(@Req() req) {
+    return this.operations.listResources(req.user.userId);
+  }
+
+  @Post('resources')
+  @ApiOperation({ summary: 'Add a resource' })
+  async addResource(@Req() req, @Body() body: any) {
+    return this.operations.addResource(req.user.userId, body);
+  }
+
+  @Patch('resources/:id/access')
+  @ApiOperation({ summary: 'Grant or revoke one student email' })
+  async setResourceAccess(@Req() req, @Param('id') id: string, @Body() body: any) {
+    return this.operations.setResourceAccess(req.user.userId, id, body);
+  }
+
+  @Delete('resources/:id')
+  @ApiOperation({ summary: 'Remove a resource' })
+  async removeResource(@Req() req, @Param('id') id: string) {
+    return this.operations.removeResource(req.user.userId, id);
+  }
+
   // ── Page builder ───────────────────────────────────────────────────────────
 
   @Get('page')

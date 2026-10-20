@@ -8,12 +8,15 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Business } from './schemas/business.schema';
 import {
+  BusinessType,
+  ResourceKind,
   PageBlockType,
   ApplicationStatus,
   JobType,
   PayoutStatus,
 } from './schemas/business.schema';
 import { Booking, BookingStatus } from '../bookings/schemas/booking.schema';
+import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate } from './page-templates';
 
 /**
  * The operating surface of a business: money, people, branches and automation.
@@ -273,6 +276,404 @@ export class BusinessOperationsService {
     return { payout: created, balance: this.computeBalance(updated, completed) };
   }
 
+
+
+
+  // ── Resources (tutorial centres) ───────────────────────────────────────────
+
+  /**
+   * The owner's resource library.
+   *
+   * Resource URLs are never returned to anyone who has not been granted access — see
+   * `listResourcesForStudent`, which is the only path a customer can use.
+   */
+  async listResources(userId: string) {
+    const business: any = await this.ownedBusiness(userId);
+    const resources = (business.resources || []).map((resource: any) => ({
+      ...resource,
+      grantedCount: (resource.grantedEmails || []).length,
+    }));
+    return resources.sort(
+      (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+    );
+  }
+
+  async addResource(userId: string, dto: any) {
+    const business = await this.ownedBusiness(userId);
+    const title = String(dto?.title || '').trim();
+    const url = String(dto?.url || '').trim();
+    if (title.length < 2) throw new BadRequestException('A resource needs a title.');
+    if (!/^https?:\/\//i.test(url)) {
+      throw new BadRequestException('url must be an http(s) link to the file.');
+    }
+    const kind = Object.values(ResourceKind).includes(dto?.kind) ? dto.kind : ResourceKind.FILE;
+
+    const emails = Array.isArray(dto?.grantedEmails)
+      ? dto.grantedEmails
+          .map((email: unknown) => String(email).trim().toLowerCase())
+          .filter((email: string) => /^\S+@\S+\.\S+$/.test(email))
+      : [];
+
+    const created = await this.businessModel
+      .findByIdAndUpdate(
+        business._id,
+        {
+          $push: {
+            resources: {
+              title,
+              description: String(dto?.description || '').trim(),
+              kind,
+              url,
+              grantedEmails: [...new Set(emails)],
+              isActive: true,
+              createdAt: new Date(),
+            },
+          },
+        },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    const list = (created as any)?.resources || [];
+    return list[list.length - 1];
+  }
+
+  /**
+   * Grant or revoke one student's access.
+   *
+   * Two atomic steps (pull then push) so granting twice cannot duplicate the email, and
+   * so a revoke is immediate rather than eventually.
+   */
+  async setResourceAccess(userId: string, resourceId: string, dto: any) {
+    if (!Types.ObjectId.isValid(resourceId)) throw new NotFoundException('Resource not found');
+    const business = await this.ownedBusiness(userId);
+
+    const resource = (business.resources || []).find((r: any) => String(r._id) === resourceId);
+    if (!resource) throw new NotFoundException('Resource not found');
+
+    const email = String(dto?.email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      throw new BadRequestException('Provide a valid student email.');
+    }
+    const grant = dto?.grant !== false;
+
+    await this.businessModel
+      .updateOne(
+        { _id: business._id, 'resources._id': new Types.ObjectId(resourceId) },
+        { $pull: { 'resources.$.grantedEmails': email } },
+      )
+      .exec();
+
+    if (grant) {
+      await this.businessModel
+        .updateOne(
+          { _id: business._id, 'resources._id': new Types.ObjectId(resourceId) },
+          { $push: { 'resources.$.grantedEmails': email } },
+        )
+        .exec();
+    }
+
+    const updated = await this.businessModel.findById(business._id).lean().exec();
+    const result = ((updated as any)?.resources || []).find(
+      (r: any) => String(r._id) === resourceId,
+    );
+    return { resource: result, granted: grant, email };
+  }
+
+  async removeResource(userId: string, resourceId: string) {
+    if (!Types.ObjectId.isValid(resourceId)) throw new NotFoundException('Resource not found');
+    const business = await this.ownedBusiness(userId);
+    await this.businessModel
+      .updateOne({ _id: business._id }, { $pull: { resources: { _id: new Types.ObjectId(resourceId) } } })
+      .exec();
+    return { success: true, deleted: true, resourceId };
+  }
+
+  /**
+   * Public: what this student may open.
+   *
+   * Matching is by the signed-in email. No email, or an email that was never granted,
+   * simply returns an empty list — the URLs never leave the server. A resource marked
+   * inactive is withdrawn from everyone.
+   */
+  async listResourcesForStudent(slug: string, viewerEmail?: string) {
+    const cleanSlug = String(slug || '').trim().toLowerCase();
+    const business: any = await this.businessModel
+      .findOne({ slug: cleanSlug, isActive: true })
+      .select('name slug resources')
+      .lean()
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+
+    const email = String(viewerEmail || '').trim().toLowerCase();
+    const resources = (business.resources || []).filter(
+      (resource: any) =>
+        resource.isActive !== false &&
+        email &&
+        (resource.grantedEmails || []).map((e: string) => String(e).toLowerCase()).includes(email),
+    );
+
+    return {
+      business: { name: business.name, slug: business.slug },
+      viewerEmail: email || null,
+      // The watermark is what makes a leaked copy traceable back to one student.
+      watermark: email || null,
+      resources: resources.map((resource: any) => ({
+        _id: resource._id,
+        title: resource.title,
+        description: resource.description,
+        kind: resource.kind,
+        url: resource.url,
+        createdAt: resource.createdAt,
+      })),
+    };
+  }
+
+  // ── Templates ──────────────────────────────────────────────────────────────
+
+  /** The templates on offer, with the one that suits this business recommended first. */
+  async listTemplates(userId: string) {
+    const business: any = await this.ownedBusiness(userId);
+    const type = business.businessType || BusinessType.SERVICE;
+    const recommended = business.templateId || defaultTemplateFor(type);
+
+    return {
+      businessType: type,
+      recommended,
+      templates: PAGE_TEMPLATES.map((template) => ({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        accentColor: template.accentColor,
+        swatch: template.swatch,
+        suits: template.suits,
+        recommended: template.id === recommended,
+        suitsThisBusiness: template.suits.includes(type),
+        sections: template.blocks.map((block) => block.type),
+      })),
+    };
+  }
+
+  /**
+   * Apply a template, replacing the current design.
+   *
+   * The whole point is that choosing one is enough — the page is complete and readable
+   * immediately, with the business's own name and description already in it.
+   */
+  async applyTemplate(userId: string, dto: any) {
+    const business: any = await this.ownedBusiness(userId);
+    const templateId = String(dto?.templateId || '');
+    const template = PAGE_TEMPLATES.find((entry) => entry.id === templateId);
+    if (!template) {
+      throw new BadRequestException(
+        `Unknown template "${templateId}". Available: ${PAGE_TEMPLATES.map((t) => t.id).join(', ')}`,
+      );
+    }
+
+    const page = materialiseTemplate(template, {
+      name: business.name,
+      description: business.description,
+    });
+
+    const updated = await this.businessModel
+      .findByIdAndUpdate(
+        business._id,
+        {
+          $set: {
+            page: { ...page, updatedAt: new Date() },
+            templateId: template.id,
+          },
+        },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    return { page: (updated as any)?.page, templateId: template.id };
+  }
+
+  /** Change what kind of business this is (it decides which tools are offered). */
+  async setBusinessType(userId: string, dto: any) {
+    const business = await this.ownedBusiness(userId);
+    const type = String(dto?.businessType || '');
+    if (!Object.values(BusinessType).includes(type as BusinessType)) {
+      throw new BadRequestException(
+        `businessType must be one of: ${Object.values(BusinessType).join(', ')}`,
+      );
+    }
+    const updated = await this.businessModel
+      .findByIdAndUpdate(business._id, { $set: { businessType: type } }, { new: true })
+      .lean()
+      .exec();
+    return { businessType: (updated as any)?.businessType };
+  }
+
+  // ── Products & inventory ───────────────────────────────────────────────────
+
+  /**
+   * The catalogue, with the numbers that actually help: profit per unit, margin, and the
+   * value of stock on hand. A student running a jewellery hustle needs to know what is
+   * making money, not just what exists.
+   */
+  async listProducts(userId: string) {
+    const business: any = await this.ownedBusiness(userId);
+    const products = business.products || [];
+
+    const rows = products.map((product: any) => {
+      const cost = Number(product.costPrice) || 0;
+      const sell = Number(product.sellPrice) || 0;
+      const stock = Number(product.stock) || 0;
+      const unitProfit = sell - cost;
+      const margin = sell > 0 ? Math.round((unitProfit / sell) * 1000) / 10 : 0;
+      return {
+        ...product,
+        unitProfit,
+        margin,
+        stockValue: cost * stock,
+        potentialRevenue: sell * stock,
+        lowStock: product.isActive !== false && stock <= (Number(product.lowStockThreshold) || 0),
+      };
+    });
+
+    const summary = {
+      products: rows.length,
+      active: rows.filter((p: any) => p.isActive !== false).length,
+      lowStock: rows.filter((p: any) => p.lowStock).length,
+      outOfStock: rows.filter((p: any) => (Number(p.stock) || 0) <= 0).length,
+      stockValue: rows.reduce((total: number, p: any) => total + p.stockValue, 0),
+      potentialRevenue: rows.reduce((total: number, p: any) => total + p.potentialRevenue, 0),
+      potentialProfit: rows.reduce(
+        (total: number, p: any) => total + p.unitProfit * (Number(p.stock) || 0),
+        0,
+      ),
+    };
+
+    return { data: rows, summary };
+  }
+
+  async addProduct(userId: string, dto: any) {
+    const business = await this.ownedBusiness(userId);
+    const name = String(dto?.name || '').trim();
+    if (name.length < 2) throw new BadRequestException('A product needs a name.');
+
+    const price = (value: unknown) => {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < 0) {
+        throw new BadRequestException('Prices must be zero or more.');
+      }
+      return number;
+    };
+
+    const created = await this.businessModel
+      .findByIdAndUpdate(
+        business._id,
+        {
+          $push: {
+            products: {
+              name,
+              description: String(dto?.description || '').trim(),
+              sku: String(dto?.sku || '').trim(),
+              costPrice: price(dto?.costPrice ?? 0),
+              sellPrice: price(dto?.sellPrice ?? 0),
+              stock: Math.max(0, Math.round(Number(dto?.stock) || 0)),
+              lowStockThreshold: Math.max(0, Math.round(Number(dto?.lowStockThreshold) || 3)),
+              images: Array.isArray(dto?.images) ? dto.images.slice(0, 6) : [],
+              isActive: true,
+            },
+          },
+        },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    const list = (created as any)?.products || [];
+    return list[list.length - 1];
+  }
+
+  async updateProduct(userId: string, productId: string, dto: any) {
+    if (!Types.ObjectId.isValid(productId)) throw new NotFoundException('Product not found');
+    const business = await this.ownedBusiness(userId);
+    if (!(business.products || []).some((p: any) => String(p._id) === productId)) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const set: Record<string, unknown> = {};
+    for (const key of ['name', 'description', 'sku']) {
+      if (typeof dto?.[key] === 'string') set[`products.$.${key}`] = dto[key].trim();
+    }
+    for (const key of ['costPrice', 'sellPrice']) {
+      if (dto?.[key] !== undefined) {
+        const number = Number(dto[key]);
+        if (!Number.isFinite(number) || number < 0) {
+          throw new BadRequestException(`${key} must be zero or more.`);
+        }
+        set[`products.$.${key}`] = number;
+      }
+    }
+    for (const key of ['stock', 'lowStockThreshold']) {
+      if (dto?.[key] !== undefined) {
+        const number = Number(dto[key]);
+        if (!Number.isFinite(number)) throw new BadRequestException(`${key} must be a number.`);
+        set[`products.$.${key}`] = Math.round(number);
+      }
+    }
+    if (typeof dto?.isActive === 'boolean') set['products.$.isActive'] = dto.isActive;
+    if (Array.isArray(dto?.images)) set['products.$.images'] = dto.images.slice(0, 6);
+
+    if (!Object.keys(set).length) throw new BadRequestException('No updatable fields provided.');
+
+    const updated = await this.businessModel
+      .findOneAndUpdate(
+        { _id: business._id, 'products._id': new Types.ObjectId(productId) },
+        { $set: set },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    return (updated as any)?.products?.find((p: any) => String(p._id) === productId);
+  }
+
+  /**
+   * Adjust stock by a delta.
+   *
+   * A relative change rather than an absolute set, because two quick sales must both
+   * count — overwriting with a stale absolute number would silently lose one.
+   */
+  async adjustStock(userId: string, productId: string, dto: any) {
+    if (!Types.ObjectId.isValid(productId)) throw new NotFoundException('Product not found');
+    const business = await this.ownedBusiness(userId);
+    const product = (business.products || []).find((p: any) => String(p._id) === productId);
+    if (!product) throw new NotFoundException('Product not found');
+
+    const delta = Number(dto?.delta);
+    if (!Number.isFinite(delta) || delta === 0) {
+      throw new BadRequestException('delta must be a non-zero number.');
+    }
+    const next = Math.max(0, (Number(product.stock) || 0) + Math.round(delta));
+
+    const updated = await this.businessModel
+      .findOneAndUpdate(
+        { _id: business._id, 'products._id': new Types.ObjectId(productId) },
+        { $set: { 'products.$.stock': next } },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    return (updated as any)?.products?.find((p: any) => String(p._id) === productId);
+  }
+
+  async removeProduct(userId: string, productId: string) {
+    if (!Types.ObjectId.isValid(productId)) throw new NotFoundException('Product not found');
+    const business = await this.ownedBusiness(userId);
+    await this.businessModel
+      .updateOne({ _id: business._id }, { $pull: { products: { _id: new Types.ObjectId(productId) } } })
+      .exec();
+    return { success: true, deleted: true, productId };
+  }
 
   // ── Public page builder ────────────────────────────────────────────────────
 

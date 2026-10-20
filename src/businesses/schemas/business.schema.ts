@@ -53,6 +53,59 @@ export interface BusinessPage {
   updatedAt?: Date;
 }
 
+
+/**
+ * What kind of student business this is.
+ *
+ * The type is not cosmetic: it decides which tools the owner gets (a tutorial centre
+ * needs a resource library, a jewellery seller needs stock and cost prices) and which
+ * default page template suits it.
+ */
+export enum BusinessType {
+  SERVICE = 'service',
+  PRODUCT = 'product',
+  TUTORIAL = 'tutorial',
+  HYBRID = 'hybrid',
+}
+
+/** A thing the business sells, with the cost price that makes profit computable. */
+export interface BusinessProduct {
+  _id?: Types.ObjectId;
+  name: string;
+  description?: string;
+  sku?: string;
+  costPrice: number;
+  sellPrice: number;
+  stock: number;
+  lowStockThreshold: number;
+  images?: string[];
+  isActive: boolean;
+}
+
+/**
+ * A learning resource a tutorial centre publishes to students it has granted access to.
+ *
+ * `url` is deliberately opaque: the marketplace never exposes the raw storage path to a
+ * student who has not been granted access.
+ */
+export enum ResourceKind {
+  FILE = 'file',
+  VIDEO = 'video',
+  LINK = 'link',
+}
+
+export interface BusinessResource {
+  _id?: Types.ObjectId;
+  title: string;
+  description?: string;
+  kind: ResourceKind;
+  url: string;
+  /** Emails allowed to open it. Empty means the resource is not published. */
+  grantedEmails?: string[];
+  isActive: boolean;
+  createdAt?: Date;
+}
+
 export interface BusinessStaff {
   _id?: Types.ObjectId;
   userId?: Types.ObjectId;
@@ -286,6 +339,47 @@ export class Business extends Document {
    * The owner-designed public page. Empty means "use the default layout", so a business
    * that never opens the builder still gets a sensible page.
    */
+  @Prop({ type: String, enum: BusinessType, default: BusinessType.SERVICE, index: true })
+  businessType: BusinessType;
+
+  /** The page template last applied, so the owner can see what they started from. */
+  @Prop({ default: '' })
+  templateId: string;
+
+  @Prop({
+    type: [
+      {
+        name: { type: String, required: true, trim: true },
+        description: { type: String, default: '' },
+        sku: { type: String, default: '' },
+        costPrice: { type: Number, default: 0, min: 0 },
+        sellPrice: { type: Number, default: 0, min: 0 },
+        stock: { type: Number, default: 0 },
+        lowStockThreshold: { type: Number, default: 3, min: 0 },
+        images: { type: [String], default: [] },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+    default: [],
+  })
+  products: BusinessProduct[];
+
+  @Prop({
+    type: [
+      {
+        title: { type: String, required: true, trim: true },
+        description: { type: String, default: '' },
+        kind: { type: String, enum: ResourceKind, default: ResourceKind.FILE },
+        url: { type: String, required: true },
+        grantedEmails: { type: [String], default: [] },
+        isActive: { type: Boolean, default: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  resources: BusinessResource[];
+
   @Prop({
     type: {
       blocks: [
