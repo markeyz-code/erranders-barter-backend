@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BusinessesService } from './businesses.service';
@@ -39,6 +29,12 @@ export class BusinessesController {
   @ApiOperation({ summary: 'Apply as a business; the caller becomes its owner' })
   async apply(@Req() req, @Body() body: ApplyBusinessDto) {
     return this.businessesService.apply(req.user.userId, body);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Public directory of active businesses (optionally by category)' })
+  async listPublic(@Query() query: any) {
+    return this.businessesService.listPublic(query);
   }
 
   @Get('me')

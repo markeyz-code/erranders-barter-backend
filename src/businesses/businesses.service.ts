@@ -199,6 +199,57 @@ export class BusinessesService {
    * Public business page. Only open roles are returned, staff are never exposed (their phone
    * numbers are personal data) and a paused business is not published at all.
    */
+  /**
+   * Public directory of active businesses, optionally narrowed by category or a
+   * search term.
+   *
+   * This is what lets a category storefront (fumigation, laundry, movers) be a real
+   * view of the database instead of a hand-written page. Only published fields are
+   * selected — never staff, commission or the owner account.
+   */
+  async listPublic(query: any) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(60, Math.max(1, Number(query?.limit) || 24));
+
+    const filter: Record<string, unknown> = { isActive: true };
+    if (query?.category) {
+      filter.category = new RegExp(`^${String(query.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
+    if (query?.search) {
+      const term = String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: new RegExp(term, 'i') },
+        { description: new RegExp(term, 'i') },
+        { category: new RegExp(term, 'i') },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.businessModel
+        .find(filter)
+        .select(PUBLIC_BUSINESS_FIELDS)
+        .sort({ isVerified: -1, rating: -1, createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.businessModel.countDocuments(filter).exec(),
+    ]);
+
+    // `PUBLIC_BUSINESS_FIELDS` is wide because the detail path needs ownerId and staff
+    // to compute live job counts. A LIST must not ship those to the browser, so strip
+    // them here exactly as `getPublicBySlug` does.
+    const data = rows.map((row: any) => {
+      const { ownerId, staff, openings, isActive, ...profile } = row;
+      return profile;
+    });
+
+    return {
+      data,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  }
+
   async getPublicBySlug(slug: string) {
     const cleanSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
     if (!cleanSlug) throw new NotFoundException('Business not found');
