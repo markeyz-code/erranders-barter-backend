@@ -59,6 +59,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
     blocks: [
       { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Book in seconds. Look sharp all week.', ctaLabel: 'Book me', ctaHref: '/services' } },
       { type: PageBlockType.GALLERY, props: { title: 'Recent work', images: [] } },
+      { type: PageBlockType.PRODUCTS, props: { title: 'Shop', note: 'Prices and availability update live.' } },
       { type: PageBlockType.SERVICES, props: { title: 'Prices', note: 'No surprises at the chair.' } },
       { type: PageBlockType.TESTIMONIALS, props: { title: 'What clients say', items: [] } },
       { type: PageBlockType.CTA, props: { headline: 'Ready when you are', body: 'Pick a time that works around your lectures.', buttonLabel: 'Book now', buttonHref: '/services' } },
@@ -92,7 +93,8 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
     swatch: ['#9D174D', '#FDF2F8', '#0F172A'],
     blocks: [
       { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Handpicked pieces, delivered on campus.', ctaLabel: 'Shop the collection', ctaHref: '/services' } },
-      { type: PageBlockType.GALLERY, props: { title: 'The collection', images: [] } },
+      { type: PageBlockType.PRODUCTS, props: { title: 'Shop the collection', note: 'Prices and availability update live.' } },
+      { type: PageBlockType.GALLERY, props: { title: 'Lookbook', images: [] } },
       { type: PageBlockType.ABOUT, props: { title: 'Our story', body: '{{description}}' } },
       { type: PageBlockType.TESTIMONIALS, props: { title: 'Happy customers', items: [] } },
       { type: PageBlockType.CTA, props: { headline: 'New drops weekly', body: 'Message us to reserve a piece before it sells out.', buttonLabel: 'Enquire', buttonHref: '/services' } },
@@ -108,6 +110,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
     blocks: [
       { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: '{{description}}', ctaLabel: 'Get in touch', ctaHref: '#contact' } },
       { type: PageBlockType.SERVICES, props: { title: 'Services' } },
+      { type: PageBlockType.PRODUCTS, props: { title: 'Shop' } },
       { type: PageBlockType.CONTACT, props: { title: 'Contact' } },
     ],
   },

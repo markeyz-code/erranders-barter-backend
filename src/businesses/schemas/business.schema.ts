@@ -24,6 +24,7 @@ export enum PageBlockType {
   HERO = 'hero',
   ABOUT = 'about',
   SERVICES = 'services',
+  PRODUCTS = 'products',
   GALLERY = 'gallery',
   HOURS = 'hours',
   FAQ = 'faq',

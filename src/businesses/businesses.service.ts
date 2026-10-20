@@ -49,7 +49,7 @@ const OWNER_UPDATABLE_FIELDS = [
 // Public business page: no commission rate and no staff details. `ownerId` and the staff
 // account ids are selected only so the job count can be computed live, then stripped below.
 const PUBLIC_BUSINESS_FIELDS =
-  'name slug category description logo banner phone email address isVerified rating createdAt isActive openings ownerId staff.userId page';
+  'name slug category description logo banner phone email address isVerified rating createdAt isActive businessType openings ownerId staff.userId page products';
 
 // A business owner sees their own history; a very old business must not get an unbounded
 // response. Totals are still computed over every attributed booking.
@@ -435,11 +435,27 @@ export class BusinessesService {
           .exec()
       : [];
 
+    // The catalogue is public: a shop owner wants their prices visible. Cost price is
+    // never exposed — that is the owner's margin, not a customer's business.
+    const products = ((business as any).products || [])
+      .filter((product: any) => product.isActive !== false)
+      .map((product: any) => ({
+        _id: product._id,
+        name: product.name,
+        description: product.description,
+        sku: product.sku,
+        sellPrice: product.sellPrice,
+        stock: product.stock,
+        images: product.images || [],
+        inStock: (Number(product.stock) || 0) > 0,
+      }));
+
     return {
       business: { ...profile, totalJobs },
       openings: openRoles,
       page: publicPage,
       services,
+      products,
     };
   }
 
