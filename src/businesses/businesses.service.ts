@@ -140,6 +140,13 @@ export class BusinessesService {
       throw new ConflictException(`The slug "${slug}" is already taken. Choose another one.`);
     }
 
+    // The same address may already belong to a vendor shop on the marketplace.
+    if (await this.vendorSlugTaken(slug)) {
+      throw new ConflictException(
+        `The address "${slug}.erranders.org" belongs to a shop on the marketplace. Choose another one.`,
+      );
+    }
+
     const categoryClean = category.toLowerCase().trim();
     let detectedType = BusinessType.SERVICE;
     if (
@@ -340,6 +347,39 @@ export class BusinessesService {
         }
       }
       throw error;
+    }
+  }
+
+
+  /**
+   * Is this address already used by a VENDOR on the marketplace?
+   *
+   * Businesses and vendors share `<slug>.erranders.org`. Without this check a business
+   * could take a slug a vendor is already using, and the Worker — which asks about
+   * businesses first — would silently make that vendor unreachable at their own address.
+   *
+   * Fails OPEN when the marketplace API is unreachable: blocking every signup because a
+   * different service is down is worse than the rare race, and the collision is visible
+   * and fixable afterwards.
+   */
+  private async vendorSlugTaken(slug: string): Promise<boolean> {
+    const base = (process.env.ERRANDERS_API_URL || '').replace(/\/$/, '');
+    if (!base) return false;
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`${base}/vendors/subdomain/${encodeURIComponent(slug)}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      // A vendor exists when the marketplace answers 200; 404 means the slug is free.
+      return response.ok;
+    } catch (error: any) {
+      this.logger.warn(
+        `Could not check whether the vendor slug "${slug}" is taken (${error?.message || error}); allowing the signup.`,
+      );
+      return false;
     }
   }
 
