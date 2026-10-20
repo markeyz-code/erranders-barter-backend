@@ -20,6 +20,7 @@ export class SettingsService implements OnModuleInit {
       { key: 'seller_commission_percentage', value: 0 },
       { key: 'errander_commission_percentage', value: 0 },
       { key: 'promoted_listing_fee', value: 0 },
+      { key: 'service_business_commission_percentage', value: 15 },
     ];
     for (const s of defaultSettings) {
       const exists = await this.settingModel.findOne({ key: s.key });

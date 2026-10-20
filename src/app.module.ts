@@ -18,6 +18,7 @@ import { ServicesModule } from './services/services.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { AdminMarketplaceModule } from './admin/admin-marketplace.module';
+import { BusinessesModule } from './businesses/businesses.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
 import { AppController } from './app.controller';
@@ -45,6 +46,8 @@ import { AppController } from './app.controller';
     AvailabilityModule,
     BookingsModule,
     AdminMarketplaceModule,
+    // Business vendor accounts: profile, staff, recruitment and the commission ledger.
+    BusinessesModule,
   ],
   controllers: [AppController],
 })

@@ -36,6 +36,11 @@ const SEED_EMAILS = [
   'nailtech@barter.test',
   'photographer@barter.test',
   'mover@barter.test',
+  'fumigpro@barter.test',
+  'fumigcrew@barter.test',
+  'freshfold@barter.test',
+  'laundrystaff@barter.test',
+  'campusmove@barter.test',
 ];
 const SEED_TX_PREFIX = 'seed-escrow-';
 // Exceptions are re-created on every run because their dates are relative to today; the
@@ -323,9 +328,59 @@ const BookingSchema = new mongoose.Schema(
     chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat' },
     cancelledBy: String,
     cancellationReason: String,
+    // Payment state the business earnings ledger reports per completed booking.
+    paymentStatus: {
+      type: String,
+      enum: ['unpaid', 'commitment_paid', 'fully_paid'],
+      default: 'unpaid',
+    },
+    payoutReleased: { type: Boolean, default: false },
     // Internal double-booking guard, same as src/bookings/schemas/booking.schema.ts.
     blocksSlot: { type: Boolean, default: true },
     slotKeys: [String],
+  },
+  { timestamps: true },
+);
+
+// --- Business accounts (mirrors src/businesses/schemas/business.schema.ts) ---------------
+
+const BusinessSchema = new mongoose.Schema(
+  {
+    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    slug: { type: String, required: true, unique: true, lowercase: true },
+    category: { type: String, required: true },
+    description: String,
+    logo: String,
+    banner: String,
+    phone: String,
+    email: String,
+    address: String,
+    isActive: { type: Boolean, default: true },
+    isVerified: { type: Boolean, default: false },
+    commissionRate: { type: Number, default: 0, min: 0, max: 50 },
+    // `userId` links a staff member to a platform account; that is the join the earnings
+    // ledger attributes their completed bookings through.
+    staff: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        name: { type: String, required: true },
+        role: { type: String, required: true },
+        phone: String,
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+    openings: [
+      {
+        title: { type: String, required: true },
+        description: String,
+        type: { type: String, enum: ['full_time', 'part_time', 'contract'], default: 'full_time' },
+        pay: Number,
+        isOpen: { type: Boolean, default: true },
+      },
+    ],
+    rating: { type: Number, default: 0 },
+    totalJobs: { type: Number, default: 0 },
   },
   { timestamps: true },
 );
@@ -342,6 +397,7 @@ const Service = mongoose.model('Service', ServiceSchema);
 const ProviderAvailability = mongoose.model('ProviderAvailability', ProviderAvailabilitySchema);
 const AvailabilityException = mongoose.model('AvailabilityException', AvailabilityExceptionSchema);
 const Booking = mongoose.model('Booking', BookingSchema);
+const Business = mongoose.model('Business', BusinessSchema);
 
 // ---------------------------------------------------------------------------
 // Dataset
@@ -367,6 +423,8 @@ const SETTINGS = [
   { key: 'seller_commission_percentage', value: 0 },
   { key: 'errander_commission_percentage', value: 0 },
   { key: 'promoted_listing_fee', value: 0 },
+  // Default commission a newly applied business starts on; admins override it per business.
+  { key: 'service_business_commission_percentage', value: 15 },
 ];
 
 const USERS = [
@@ -568,6 +626,117 @@ const USERS = [
       rating: 4.9,
       totalReviews: 38,
       totalBookings: 52,
+    },
+  },
+  // --- Business accounts: one owner account per business, plus staff accounts the business
+  // links to so its earnings ledger has real attributable work. A business owner is still a
+  // normal user account: `Service.providerId` points at a user, not at a business.
+  {
+    key: 'fumigpro',
+    firstName: 'Ifeanyi',
+    lastName: 'Obi',
+    email: 'fumigpro@barter.test',
+    isVerified: true,
+    whatsappNumber: '08034567812',
+    university: 'UNILAG',
+    hostel: 'Akoka',
+    level: 'Staff',
+    rating: 4.8,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Ifeanyi+Obi&background=0F766E&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'FumigPro Services — hostel fumigation & pest control',
+      bio: 'Licensed fumigation and pest-control crew working across UNILAG halls and the Akoka/Yaba axis. Room fumigation, bed bug treatment and post-treatment cleaning, with a treatment note and a 30-day re-treatment guarantee.',
+      skills: ['Room fumigation', 'Bed bug treatment', 'Cockroach control', 'Post-treatment cleaning'],
+      serviceArea: 'All UNILAG halls, Akoka and Yaba',
+      isAcceptingBookings: true,
+      rating: 4.8,
+      totalReviews: 44,
+      totalBookings: 51,
+    },
+  },
+  {
+    key: 'fumigcrew',
+    firstName: 'Emeka',
+    lastName: 'Nwankwo',
+    email: 'fumigcrew@barter.test',
+    isVerified: true,
+    whatsappNumber: '08034567813',
+    university: 'UNILAG',
+    hostel: 'Akoka',
+    level: 'Staff',
+    rating: 4.7,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Emeka+Nwankwo&background=0F766E&color=fff',
+  },
+  {
+    key: 'freshfold',
+    firstName: 'Grace',
+    lastName: 'Adebayo',
+    email: 'freshfold@barter.test',
+    isVerified: true,
+    whatsappNumber: '08055667788',
+    university: 'UNILAG',
+    hostel: 'Akoka',
+    level: 'Staff',
+    rating: 4.6,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Grace+Adebayo&background=1D4ED8&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'FreshFold Laundry — wash, iron and duvet care',
+      bio: 'Pickup and delivery laundry for students. Your items are washed separately, ironed and returned within 48 hours; duvets and blankets get a proper deep wash and air dry.',
+      skills: ['Wash & iron', 'Duvet cleaning', 'Pickup & delivery', 'Express service'],
+      serviceArea: 'UNILAG halls and Akoka',
+      isAcceptingBookings: true,
+      rating: 4.6,
+      totalReviews: 33,
+      totalBookings: 40,
+    },
+  },
+  {
+    key: 'laundrystaff',
+    firstName: 'Blessing',
+    lastName: 'Okoro',
+    email: 'laundrystaff@barter.test',
+    isVerified: true,
+    whatsappNumber: '07099887766',
+    university: 'UNILAG',
+    hostel: 'Akoka',
+    level: 'Staff',
+    rating: 4.5,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Blessing+Okoro&background=1D4ED8&color=fff',
+  },
+  {
+    key: 'campusmove',
+    firstName: 'Chinedu',
+    lastName: 'Eze',
+    email: 'campusmove@barter.test',
+    isVerified: true,
+    whatsappNumber: '08133445566',
+    university: 'UNILAG',
+    hostel: 'Akoka',
+    level: 'Staff',
+    rating: 4.7,
+    totalTrades: 0,
+    walletBalance: 0,
+    avatar: 'https://ui-avatars.com/api/?name=Chinedu+Eze&background=EA580C&color=fff',
+    isServiceProvider: true,
+    providerProfile: {
+      headline: 'CampusMove Logistics — van moves and holiday storage',
+      bio: 'Hostel moves with a van and two loaders, plus secure holiday storage for trunks and boxes. We wrap mattresses and fridges before they leave your room.',
+      skills: ['Hostel moves', 'Van & loaders', 'Holiday storage', 'Furniture wrapping'],
+      serviceArea: 'UNILAG, Akoka and Yaba',
+      isAcceptingBookings: true,
+      rating: 4.7,
+      totalReviews: 21,
+      totalBookings: 26,
     },
   },
 ];
@@ -979,6 +1148,148 @@ const SERVICES = [
     rating: 4.7,
     totalBookings: 14,
   },
+  // --- Business-owned services. The provider is the business owner's user account; the
+  // business page and its earnings ledger are what group these under the company.
+  {
+    key: 'fumigpro-room',
+    provider: 'fumigpro',
+    title: 'Hostel Room Fumigation (Single Room)',
+    description:
+      'Full room fumigation for bed bugs, cockroaches and mosquitoes. We cover mattresses, wardrobes, corners and the bathroom, then air the room and leave a treatment note. One re-treatment within 30 days is included.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 12000,
+    durationMinutes: 90,
+    bufferMinutes: 30,
+    location: 'Your hostel room, UNILAG',
+    isRemote: false,
+    tags: ['fumigation', 'pest control', 'bed bugs', 'cockroach', 'hostel'],
+    images: [
+      'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.8,
+    totalBookings: 36,
+  },
+  {
+    key: 'fumigpro-bedbugs',
+    provider: 'fumigpro',
+    title: 'Bed Bug Treatment — Mattress & Bed Frame',
+    description:
+      'Targeted bed bug treatment for the mattress, frame and surrounding skirting. Includes a follow-up inspection after two weeks and safe re-entry guidance.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 15000,
+    durationMinutes: 90,
+    bufferMinutes: 30,
+    location: 'Your hostel room, UNILAG',
+    isRemote: false,
+    tags: ['fumigation', 'bed bugs', 'mattress', 'pest control'],
+    images: [
+      'https://images.unsplash.com/photo-1585421514738-01798e348b17?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.9,
+    totalBookings: 18,
+  },
+  {
+    key: 'fumigpro-deepclean',
+    provider: 'fumigpro',
+    title: 'Post-Fumigation Deep Cleaning',
+    description:
+      'The clean-up after a treatment: surfaces wiped, floors scrubbed, cobwebs cleared and the room aired so it is ready to move back into the same day.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 8000,
+    durationMinutes: 120,
+    bufferMinutes: 20,
+    location: 'Your hostel room, UNILAG',
+    isRemote: false,
+    tags: ['cleaning', 'fumigation', 'deep clean', 'post treatment'],
+    images: [
+      'https://images.unsplash.com/photo-1581578949510-fa7315c4c350?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 12,
+  },
+  {
+    key: 'freshfold-wash',
+    provider: 'freshfold',
+    title: 'Weekly Wash & Iron (Up to 10 Items)',
+    description:
+      'Pickup from your hall, wash and iron, delivery back within 48 hours. Your items are washed separately from other customers and returned folded or on hangers.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 4500,
+    durationMinutes: 240,
+    bufferMinutes: 60,
+    location: 'Pickup at your hall, UNILAG',
+    isRemote: false,
+    tags: ['laundry', 'wash and iron', 'pickup', 'delivery'],
+    images: [
+      'https://images.unsplash.com/photo-1545173168-9f1947eebb7f?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.6,
+    totalBookings: 29,
+  },
+  {
+    key: 'freshfold-duvet',
+    provider: 'freshfold',
+    title: 'Duvet & Blanket Deep Wash',
+    description:
+      'Industrial deep wash and air dry for duvets, blankets and heavy bed sheets. Dust mites and stains handled; delivered back sealed in a clean bag.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 3000,
+    durationMinutes: 180,
+    bufferMinutes: 60,
+    location: 'Pickup at your hall, UNILAG',
+    isRemote: false,
+    tags: ['laundry', 'duvet', 'blanket', 'deep wash'],
+    images: [
+      'https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 15,
+  },
+  {
+    key: 'campusmove-van',
+    provider: 'campusmove',
+    title: 'Hostel Move — Van + Two Loaders',
+    description:
+      'A van, a driver and two loaders for your hall-to-hall or hall-to-off-campus move. Mattresses and fridges wrapped before loading, everything carried down and placed in the new room.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 20000,
+    durationMinutes: 180,
+    bufferMinutes: 30,
+    location: 'UNILAG halls and Lagos mainland',
+    isRemote: false,
+    tags: ['logistics', 'moving', 'van', 'loaders', 'hostel'],
+    images: [
+      'https://images.unsplash.com/photo-1600585152220-90363fe7e115?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.7,
+    totalBookings: 19,
+  },
+  {
+    key: 'campusmove-storage',
+    provider: 'campusmove',
+    title: 'Holiday Storage — 2 Boxes for 4 Weeks',
+    description:
+      'Secure holiday storage for two packed boxes or trunks in a gated store with 24/7 security. Drop-off and collection at the store; we can arrange pickup for an extra fee.',
+    category: 'Services',
+    priceType: 'fixed',
+    price: 7000,
+    durationMinutes: 30,
+    bufferMinutes: 15,
+    location: 'Akoka secure store, Lagos',
+    isRemote: false,
+    tags: ['logistics', 'storage', 'holiday', 'trunks'],
+    images: [
+      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=800',
+    ],
+    rating: 4.6,
+    totalBookings: 7,
+  },
 ];
 
 // Weekly windows per provider. dayOfWeek: 0 = Sunday … 6 = Saturday.
@@ -1089,6 +1400,55 @@ const AVAILABILITY = [
     ],
     exceptions: [],
   },
+  {
+    provider: 'fumigpro',
+    windows: [
+      { dayOfWeek: 1, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 2, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 3, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 4, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 5, startTime: '08:00', endTime: '18:00' },
+      { dayOfWeek: 6, startTime: '09:00', endTime: '16:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 4,
+        isBlocked: true,
+        note: 'Seed: Chemical restock and equipment service',
+      },
+    ],
+  },
+  {
+    provider: 'freshfold',
+    windows: [
+      { dayOfWeek: 1, startTime: '09:00', endTime: '19:00' },
+      { dayOfWeek: 2, startTime: '09:00', endTime: '19:00' },
+      { dayOfWeek: 3, startTime: '09:00', endTime: '19:00' },
+      { dayOfWeek: 4, startTime: '09:00', endTime: '19:00' },
+      { dayOfWeek: 5, startTime: '09:00', endTime: '19:00' },
+      { dayOfWeek: 6, startTime: '10:00', endTime: '16:00' },
+    ],
+    exceptions: [],
+  },
+  {
+    provider: 'campusmove',
+    windows: [
+      { dayOfWeek: 0, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 1, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 2, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 3, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 4, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 5, startTime: '07:00', endTime: '19:00' },
+      { dayOfWeek: 6, startTime: '07:00', endTime: '19:00' },
+    ],
+    exceptions: [
+      {
+        daysFromNow: 9,
+        isBlocked: true,
+        note: 'Seed: Van servicing',
+      },
+    ],
+  },
 ];
 
 // Relative dates keep the demo usable no matter when the seed is run. Bookings are matched
@@ -1147,6 +1507,228 @@ const BOOKINGS = [
       {
         sender: 'mover',
         content: 'Got it! I will bring strapping belts so we can safely move the fridge down without any scratch.',
+      },
+    ],
+  },
+  // --- Completed and upcoming work for the seeded businesses, so the earnings ledger, the
+  // commission breakdown and the admin counts have real rows on a fresh database.
+  {
+    key: 'completed-fumigation-room',
+    service: 'fumigpro-room',
+    customer: 'buyer',
+    date: { previousWeekday: [0, 1, 2, 3, 4, 5, 6], daysAgo: 12 },
+    startTime: '10:00',
+    status: 'completed',
+    notes: 'Room treated for cockroaches before resumption. Treatment note received.',
+  },
+  {
+    key: 'completed-fumigation-bugs',
+    service: 'fumigpro-bedbugs',
+    customer: 'swapper',
+    date: { previousWeekday: [0, 1, 2, 3, 4, 5, 6], daysAgo: 6 },
+    startTime: '14:00',
+    status: 'completed',
+    notes: 'Mattress and frame treated; follow-up inspection done after two weeks.',
+  },
+  {
+    key: 'completed-fumigation-clean',
+    service: 'fumigpro-deepclean',
+    customer: 'seller',
+    date: { previousWeekday: [0, 1, 2, 3, 4, 5, 6], daysAgo: 21 },
+    startTime: '09:00',
+    status: 'completed',
+    notes: 'Post-fumigation clean with the room ready for handover.',
+  },
+  {
+    key: 'confirmed-fumigation-room',
+    service: 'fumigpro-room',
+    customer: 'swapper',
+    date: { nextWeekday: [1, 2, 3, 4, 5, 6] },
+    startTime: '11:00',
+    status: 'confirmed',
+    notes: 'Second room in the same hall — please bring the mattress cover.',
+  },
+  {
+    key: 'completed-laundry-wash',
+    service: 'freshfold-wash',
+    customer: 'buyer',
+    date: { previousWeekday: [0, 1, 2, 3, 4, 5, 6], daysAgo: 9 },
+    startTime: '11:00',
+    status: 'completed',
+    notes: 'Ten items washed and ironed, delivered back to Jaja Hall.',
+  },
+  {
+    key: 'confirmed-laundry-duvet',
+    service: 'freshfold-duvet',
+    customer: 'seller',
+    date: { nextWeekday: [1, 2, 3, 4, 5, 6] },
+    startTime: '13:00',
+    status: 'confirmed',
+    notes: 'One duvet and two blankets for the weekend.',
+  },
+  {
+    key: 'completed-campusmove-van',
+    service: 'campusmove-van',
+    customer: 'swapper',
+    date: { previousWeekday: [0, 1, 2, 3, 4, 5, 6], daysAgo: 18 },
+    startTime: '08:00',
+    status: 'completed',
+    notes: 'Move from Fagunwa Hall to an off-campus flat in Akoka.',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Business accounts dataset
+// ---------------------------------------------------------------------------
+
+// `owner` is a USERS key. `commissionRate` is the percent Erranders keeps (admin-set in the
+// app); `staff[].user`, when present, links that person to a seeded account — the link the
+// earnings ledger attributes their completed bookings through.
+const BUSINESSES = [
+  {
+    key: 'fumigpro',
+    owner: 'fumigpro',
+    name: 'FumigPro Services',
+    slug: 'fumigpro',
+    category: 'fumigation',
+    description:
+      'Licensed fumigation and pest-control crew serving UNILAG halls and the Akoka/Yaba axis. Room fumigation, bed bug treatment, post-treatment cleaning and a 30-day re-treatment guarantee. Same-day appointments before 2pm.',
+    logo: 'https://ui-avatars.com/api/?name=FumigPro+Services&background=0F766E&color=fff',
+    banner:
+      'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&q=80&w=1600',
+    phone: '08034567812',
+    email: 'hello@fumigpro.ng',
+    address: '12 Ogunlana Drive, Akoka, Lagos',
+    isActive: true,
+    isVerified: true,
+    commissionRate: 15,
+    rating: 4.8,
+    staff: [
+      {
+        user: 'fumigcrew',
+        name: 'Emeka Nwankwo',
+        role: 'Crew lead',
+        phone: '08034567813',
+        isActive: true,
+      },
+      { name: 'Ngozi Umeh', role: 'Fumigation technician', phone: '08122334455', isActive: true },
+      { name: 'Sadiq Bello', role: 'Technician assistant', phone: '07011223344', isActive: true },
+      { name: 'Halima Yusuf', role: 'Bookings & support', phone: '08199887766', isActive: false },
+    ],
+    openings: [
+      {
+        title: 'Fumigation Technician',
+        description:
+          'Run room and mattress treatments with the crew lead. We provide the chemicals, PPE and training; you bring a valid ID and a clean driving record is a plus. Full-time, Monday to Saturday.',
+        type: 'full_time',
+        pay: 120000,
+        isOpen: true,
+      },
+      {
+        title: 'Weekend Crew Assistant',
+        description:
+          'Saturdays and Sundays, 9am to 4pm: help carry equipment, prep rooms and clean up after treatment. Perfect for a student who wants steady weekend work.',
+        type: 'part_time',
+        pay: 45000,
+        isOpen: true,
+      },
+      {
+        title: 'Sales & Bookings Agent',
+        description:
+          'Follow up on hall bookings and manage the business WhatsApp line. Closed for now — we filled the role in January.',
+        type: 'contract',
+        pay: 80000,
+        isOpen: false,
+      },
+    ],
+  },
+  {
+    key: 'freshfold',
+    owner: 'freshfold',
+    name: 'FreshFold Laundry',
+    slug: 'freshfold',
+    category: 'laundry',
+    description:
+      'Student laundry with pickup and delivery across UNILAG halls. Wash and iron, duvet deep washes and express 24-hour turnaround. Every order is washed separately and returned within 48 hours.',
+    logo: 'https://ui-avatars.com/api/?name=FreshFold+Laundry&background=1D4ED8&color=fff',
+    banner:
+      'https://images.unsplash.com/photo-1545173168-9f1947eebb7f?auto=format&fit=crop&q=80&w=1600',
+    phone: '08055667788',
+    email: 'orders@freshfold.ng',
+    address: '8 St. Finbarrs Road, Akoka, Lagos',
+    isActive: true,
+    isVerified: true,
+    commissionRate: 12,
+    rating: 4.6,
+    staff: [
+      {
+        user: 'laundrystaff',
+        name: 'Blessing Okoro',
+        role: 'Laundry attendant',
+        phone: '07099887766',
+        isActive: true,
+      },
+      { name: 'Tayo Ajayi', role: 'Pickup rider', phone: '08177665544', isActive: true },
+      { name: 'Ify Nnaji', role: 'Ironing & packaging', phone: '08066554433', isActive: true },
+    ],
+    openings: [
+      {
+        title: 'Pickup Rider',
+        description:
+          'Collect laundry bags from halls and return finished orders. You need your own bike and a smartphone for the order list. Part-time, weekday evenings and Saturday mornings.',
+        type: 'part_time',
+        pay: 50000,
+        isOpen: true,
+      },
+      {
+        title: 'Laundry Attendant',
+        description:
+          'Wash, dry and iron student orders at our Akoka shop. Full-time with one day off; experience with delicates is an advantage but we train.',
+        type: 'full_time',
+        pay: 95000,
+        isOpen: true,
+      },
+    ],
+  },
+  {
+    key: 'campusmove',
+    owner: 'campusmove',
+    name: 'CampusMove Logistics',
+    slug: 'campusmove',
+    category: 'logistics',
+    description:
+      'Hostel moves with a van and two loaders, plus secure holiday storage for trunks and boxes. We wrap mattresses and fridges before loading and place everything in your new room.',
+    logo: 'https://ui-avatars.com/api/?name=CampusMove+Logistics&background=EA580C&color=fff',
+    banner:
+      'https://images.unsplash.com/photo-1600585152220-90363fe7e115?auto=format&fit=crop&q=80&w=1600',
+    phone: '08133445566',
+    email: 'moves@campusmove.ng',
+    address: '24 University Road, Yaba, Lagos',
+    isActive: true,
+    isVerified: false,
+    commissionRate: 10,
+    rating: 4.7,
+    staff: [
+      { name: 'Yusuf Bello', role: 'Driver', phone: '08022334455', isActive: true },
+      { name: 'Peter Okafor', role: 'Loader', phone: '07033445566', isActive: true },
+      { name: 'Musa Danjuma', role: 'Loader', phone: '08144556677', isActive: false },
+    ],
+    openings: [
+      {
+        title: 'Driver (Van)',
+        description:
+          'Drive our 14-seater van on hostel move days across Lagos mainland. Valid driver licence and at least two years driving experience required. Contract, paid per move plus a retainer.',
+        type: 'contract',
+        pay: 150000,
+        isOpen: true,
+      },
+      {
+        title: 'Weekend Loader',
+        description:
+          'Help carry trunks, mattresses and fridges during move weekends. No experience needed, just reliability. Paid per move.',
+        type: 'part_time',
+        pay: 60000,
+        isOpen: false,
       },
     ],
   },
@@ -1505,6 +2087,10 @@ async function upsertBookings(users, services) {
           amount: serviceDoc.price || 0,
           status: booking.status,
           notes: booking.notes,
+          // Completed work is paid out; anything pending or confirmed has only the
+          // commitment fee recorded. The earnings ledger reports both fields per payout.
+          paymentStatus: booking.status === 'completed' ? 'fully_paid' : 'commitment_paid',
+          payoutReleased: booking.status === 'completed',
           blocksSlot: true,
           slotKeys: buildSlotKeys(
             providerId.toString(),
@@ -1529,6 +2115,46 @@ async function upsertBookings(users, services) {
   }
 
   return byKey;
+}
+
+async function upsertBusinesses(users) {
+  const byKey = {};
+
+  for (const business of BUSINESSES) {
+    const { key, owner, ...fields } = business;
+    const ownerId = users[owner]._id;
+
+    // `user` is a USERS key in this file only; the stored staff member holds `userId`.
+    const staff = (fields.staff || []).map(({ user, ...member }) => ({
+      ...member,
+      ...(user ? { userId: users[user]._id } : {}),
+    }));
+
+    // Matched on ownerId, not slug, so the business keeps its identity when a slug is edited.
+    // Staff and openings are fully owned by this file, so they are replaced on every run.
+    const doc = await Business.findOneAndUpdate(
+      { ownerId },
+      { $set: { ...fields, ownerId, staff } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    byKey[key] = doc;
+  }
+
+  return byKey;
+}
+
+// The stored counter is derived from the same attribution the earnings endpoint uses: the
+// owner account plus every linked staff account. Recomputing it on each seed run keeps the
+// profile card and the ledger consistent instead of drifting apart.
+async function syncBusinessJobCounters(businesses) {
+  for (const business of Object.values(businesses)) {
+    const partyIds = [
+      business.ownerId,
+      ...business.staff.filter((member) => member.userId).map((member) => member.userId),
+    ];
+    const totalJobs = await Booking.countDocuments({ providerId: { $in: partyIds } });
+    await Business.updateOne({ _id: business._id }, { $set: { totalJobs } });
+  }
 }
 
 async function resetSeedData() {
@@ -1557,6 +2183,7 @@ async function resetSeedData() {
   const services = await Service.deleteMany({ providerId: { $in: userIds } });
   const availability = await ProviderAvailability.deleteMany({ providerId: { $in: userIds } });
   const exceptions = await AvailabilityException.deleteMany({ providerId: { $in: userIds } });
+  const businesses = await Business.deleteMany({ ownerId: { $in: userIds } });
   const items = await Item.deleteMany({ sellerId: { $in: userIds } });
   const deletedUsers = await User.deleteMany({ _id: { $in: userIds } });
 
@@ -1565,7 +2192,8 @@ async function resetSeedData() {
       `${offers.deletedCount} offers, ${transactions.deletedCount} transactions, ` +
       `${deletedChats.deletedCount} chats, ${messages.deletedCount} messages, ` +
       `${services.deletedCount} services, ${bookings.deletedCount} bookings, ` +
-      `${availability.deletedCount} availability windows, ${exceptions.deletedCount} exceptions.`,
+      `${availability.deletedCount} availability windows, ${exceptions.deletedCount} exceptions, ` +
+      `${businesses.deletedCount} businesses.`,
   );
 }
 
@@ -1593,6 +2221,8 @@ async function main() {
   const services = await upsertServices(users);
   await upsertAvailability(users);
   await upsertBookings(users, services);
+  const businesses = await upsertBusinesses(users);
+  await syncBusinessJobCounters(businesses);
 
   console.log('\n✔ Seed complete (idempotent — safe to run again).\n');
   console.log('Demo accounts (all use the same password):');
@@ -1606,6 +2236,13 @@ async function main() {
   console.log('  Nail tech    nailtech@barter.test     / password123');
   console.log('  Photographer photographer@barter.test / password123');
   console.log('  Hostel Mover mover@barter.test        / password123');
+  console.log('\nBusiness accounts (owner logins, same password):');
+  for (const business of BUSINESSES) {
+    console.log(
+      `  ${business.name.padEnd(21)} ${users[business.owner].email.padEnd(24)} / password123`,
+    );
+  }
+  console.log('  Staff accounts: fumigcrew@barter.test, laundrystaff@barter.test');
   console.log('\nSeeded content:');
   console.log(`  ${USERS.length} users, ${ITEMS.length} listings (sell/swap/service),`);
   console.log('  2 pending swap offers, 3 escrows (held / released / disputed),');
@@ -1617,6 +2254,13 @@ async function main() {
   console.log(
     `  ${AVAILABILITY.reduce((total, entry) => total + entry.exceptions.length, 0)} date exceptions, ` +
       `${BOOKINGS.length} bookings (pending / confirmed with video room / completed).`,
+  );
+  console.log(
+    `  ${BUSINESSES.length} businesses with ` +
+      `${BUSINESSES.reduce((total, entry) => total + entry.staff.length, 0)} staff, ` +
+      `${BUSINESSES.reduce((total, entry) => total + entry.openings.length, 0)} openings and ` +
+      `commission rates of ${BUSINESSES.map((entry) => `${entry.commissionRate}%`).join(' / ')} ` +
+      '(completed work included).',
   );
   console.log('\nAdmin sign-in: admin@barter.test has isAdmin set on the account.\n');
 }
