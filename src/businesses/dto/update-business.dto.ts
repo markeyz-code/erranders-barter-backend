@@ -47,4 +47,17 @@ export class UpdateBusinessDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  businessType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  templateId?: string;
+
+  @IsOptional()
+  studyMode?: any;
 }

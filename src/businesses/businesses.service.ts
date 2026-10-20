@@ -11,6 +11,7 @@ import { Model, Types } from 'mongoose';
 import {
   Business,
   BusinessStaff,
+  BusinessType,
   JobOpening,
   JobType,
 } from './schemas/business.schema';
@@ -28,6 +29,7 @@ import { UpdateStaffDto } from './dto/update-staff.dto';
 import { CreateOpeningDto } from './dto/create-opening.dto';
 import { UpdateOpeningDto } from './dto/update-opening.dto';
 import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto';
+import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate } from './page-templates';
 
 /**
  * Owner-settable profile fields, and the complete list: anything not named here cannot be
@@ -44,12 +46,15 @@ const OWNER_UPDATABLE_FIELDS = [
   'email',
   'address',
   'isActive',
+  'businessType',
+  'templateId',
+  'studyMode',
 ];
 
 // Public business page: no commission rate and no staff details. `ownerId` and the staff
 // account ids are selected only so the job count can be computed live, then stripped below.
 const PUBLIC_BUSINESS_FIELDS =
-  'name slug category description logo banner phone email address isVerified rating createdAt isActive businessType openings ownerId staff.userId page products';
+  'name slug category description logo banner phone email address isVerified rating createdAt isActive businessType openings ownerId staff.userId page products studyMode templateId';
 
 // A business owner sees their own history; a very old business must not get an unbounded
 // response. Totals are still computed over every attributed booking.
@@ -135,12 +140,51 @@ export class BusinessesService {
       throw new ConflictException(`The slug "${slug}" is already taken. Choose another one.`);
     }
 
+    const categoryClean = category.toLowerCase().trim();
+    let detectedType = BusinessType.SERVICE;
+    if (
+      categoryClean.includes('tutorial') ||
+      categoryClean.includes('academy') ||
+      categoryClean.includes('lesson') ||
+      categoryClean.includes('exam') ||
+      categoryClean.includes('prep') ||
+      categoryClean.includes('course')
+    ) {
+      detectedType = BusinessType.HYBRID;
+    } else if (
+      categoryClean.includes('jewel') ||
+      categoryClean.includes('bead') ||
+      categoryClean.includes('thrift') ||
+      categoryClean.includes('cloth') ||
+      categoryClean.includes('fashion') ||
+      categoryClean.includes('perfume') ||
+      categoryClean.includes('food') ||
+      categoryClean.includes('bake') ||
+      categoryClean.includes('snack') ||
+      categoryClean.includes('tech') ||
+      categoryClean.includes('gadget')
+    ) {
+      detectedType = BusinessType.PRODUCT;
+    }
+
+    const businessType =
+      dto?.businessType && Object.values(BusinessType).includes(dto.businessType as BusinessType)
+        ? (dto.businessType as BusinessType)
+        : detectedType;
+
+    const templateId = dto?.templateId || defaultTemplateFor(categoryClean, businessType);
+    const chosenTemplate =
+      PAGE_TEMPLATES.find((t) => t.id === templateId) ||
+      PAGE_TEMPLATES.find((t) => t.id === 'minimal') ||
+      PAGE_TEMPLATES[0];
+    const initialPage = materialiseTemplate(chosenTemplate, { name, description });
+
     try {
       const created = await this.businessModel.create({
         ownerId: userId,
         name,
         slug,
-        category: category.toLowerCase(),
+        category: categoryClean,
         description,
         logo: '',
         banner: '',
@@ -149,6 +193,15 @@ export class BusinessesService {
         address: this.cleanText(dto?.address),
         isActive: true,
         isVerified: false,
+        businessType,
+        templateId,
+        page: initialPage,
+        studyMode: {
+          isActive: false,
+          notice: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+          autoReply: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+          lectureSchedule: [],
+        },
         commissionRate: await this.defaultCommissionRate(),
         staff: [],
         openings: [],
@@ -318,6 +371,26 @@ export class BusinessesService {
     if (update.email) update.email = String(update.email).toLowerCase();
     if (update.isActive !== undefined) {
       update.isActive = this.parseBoolean(update.isActive, 'isActive');
+    }
+    if (update.studyMode && typeof update.studyMode === 'object') {
+      update.studyMode = {
+        isActive: Boolean(update.studyMode.isActive),
+        notice:
+          typeof update.studyMode.notice === 'string'
+            ? update.studyMode.notice.slice(0, 500)
+            : '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+        autoReply:
+          typeof update.studyMode.autoReply === 'string'
+            ? update.studyMode.autoReply.slice(0, 1000)
+            : 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+        lectureSchedule: Array.isArray(update.studyMode.lectureSchedule)
+          ? update.studyMode.lectureSchedule.map((s: any) => ({
+              day: String(s.day || ''),
+              start: String(s.start || ''),
+              end: String(s.end || ''),
+            }))
+          : [],
+      };
     }
 
     return this.businessModel

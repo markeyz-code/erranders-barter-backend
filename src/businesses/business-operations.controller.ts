@@ -155,6 +155,20 @@ export class BusinessOperationsController {
     return this.operations.updateAutomation(req.user.userId, body);
   }
 
+  // ── Study Guard / Academic Focus Mode ──────────────────────────────────────
+
+  @Get('study-mode')
+  @ApiOperation({ summary: 'Current study mode and academic protection status' })
+  async studyMode(@Req() req) {
+    return this.operations.getStudyMode(req.user.userId);
+  }
+
+  @Patch('study-mode')
+  @ApiOperation({ summary: 'Update study mode toggle, notices, and lecture schedule' })
+  async updateStudyMode(@Req() req, @Body() body: any) {
+    return this.operations.updateStudyMode(req.user.userId, body);
+  }
+
   // ── Locations ──────────────────────────────────────────────────────────────
 
   @Get('locations')

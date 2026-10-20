@@ -37,4 +37,14 @@ export class ApplyBusinessDto {
   @IsString()
   @MaxLength(200)
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  businessType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  templateId?: string;
 }

@@ -807,6 +807,51 @@ export class BusinessOperationsService {
     return { automation: (updated as any)?.automation || current };
   }
 
+  // ── Study Guard / Academic Focus Mode ──────────────────────────────────────
+
+  async getStudyMode(userId: string) {
+    const business = await this.ownedBusiness(userId);
+    return {
+      studyMode: business.studyMode || {
+        isActive: false,
+        notice: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+        autoReply: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+        lectureSchedule: [],
+      },
+    };
+  }
+
+  async updateStudyMode(userId: string, dto: any) {
+    const business = await this.ownedBusiness(userId);
+    const current = business.studyMode || {
+      isActive: false,
+      notice: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+      autoReply: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
+      lectureSchedule: [],
+    };
+
+    const next: Record<string, unknown> = {};
+    if (typeof dto?.isActive === 'boolean') next['studyMode.isActive'] = dto.isActive;
+    if (typeof dto?.notice === 'string') next['studyMode.notice'] = dto.notice.trim().slice(0, 500);
+    if (typeof dto?.autoReply === 'string') next['studyMode.autoReply'] = dto.autoReply.trim().slice(0, 1000);
+    if (Array.isArray(dto?.lectureSchedule)) {
+      next['studyMode.lectureSchedule'] = dto.lectureSchedule
+        .map((slot: any) => ({
+          day: String(slot.day || '').trim(),
+          start: String(slot.start || '').trim(),
+          end: String(slot.end || '').trim(),
+        }))
+        .filter((slot: any) => slot.day && slot.start);
+    }
+
+    const updated = await this.businessModel
+      .findByIdAndUpdate(business._id, { $set: next }, { new: true })
+      .lean()
+      .exec();
+
+    return { studyMode: (updated as any)?.studyMode || current };
+  }
+
   // ── Locations (scaling) ────────────────────────────────────────────────────
 
   async listLocations(userId: string) {
