@@ -21,10 +21,12 @@ import { AdminMarketplaceModule } from './admin/admin-marketplace.module';
 import { BusinessesModule } from './businesses/businesses.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
+import { SupportModule } from './support/support.module';
 import { AppController } from './app.controller';
 
 @Module({
   imports: [
+    SupportModule,
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/barter-dev'),
     NotificationsModule,
