@@ -13,6 +13,46 @@ export enum JobType {
  * not need a platform account. When it is set it is the link the earnings ledger attributes
  * that person's completed bookings through.
  */
+
+/**
+ * The block types the page builder offers.
+ *
+ * A closed enum on purpose: the public page renders each type with a component it
+ * already owns, so an unknown type can never reach the browser and render nothing.
+ */
+export enum PageBlockType {
+  HERO = 'hero',
+  ABOUT = 'about',
+  SERVICES = 'services',
+  GALLERY = 'gallery',
+  HOURS = 'hours',
+  FAQ = 'faq',
+  TESTIMONIALS = 'testimonials',
+  CONTACT = 'contact',
+  CTA = 'cta',
+}
+
+/**
+ * One section of a business's public page.
+ *
+ * `props` is intentionally loose — each block type owns its own shape — but the service
+ * validates the type and caps the payload, so this cannot become an arbitrary document
+ * store that the renderer then has to trust.
+ */
+export interface PageBlock {
+  id: string;
+  type: PageBlockType;
+  isVisible: boolean;
+  props: Record<string, unknown>;
+}
+
+export interface BusinessPage {
+  blocks: PageBlock[];
+  /** Hex accent used for buttons on the public page. */
+  accentColor?: string;
+  updatedAt?: Date;
+}
+
 export interface BusinessStaff {
   _id?: Types.ObjectId;
   userId?: Types.ObjectId;
@@ -241,6 +281,27 @@ export class Business extends Document {
     default: [],
   })
   locations: BusinessLocation[];
+
+  /**
+   * The owner-designed public page. Empty means "use the default layout", so a business
+   * that never opens the builder still gets a sensible page.
+   */
+  @Prop({
+    type: {
+      blocks: [
+        {
+          id: { type: String, required: true },
+          type: { type: String, enum: PageBlockType, required: true },
+          isVisible: { type: Boolean, default: true },
+          props: { type: Object, default: {} },
+        },
+      ],
+      accentColor: { type: String, default: '' },
+      updatedAt: { type: Date },
+    },
+    default: () => ({ blocks: [], accentColor: '' }),
+  })
+  page: BusinessPage;
 
   @Prop({
     type: {

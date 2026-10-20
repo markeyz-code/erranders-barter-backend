@@ -8,6 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Business } from './schemas/business.schema';
 import {
+  PageBlockType,
   ApplicationStatus,
   JobType,
   PayoutStatus,
@@ -270,6 +271,83 @@ export class BusinessOperationsService {
 
     const created = (updated.payouts || [])[(updated.payouts || []).length - 1];
     return { payout: created, balance: this.computeBalance(updated, completed) };
+  }
+
+
+  // ── Public page builder ────────────────────────────────────────────────────
+
+  /** The owner's current page design (empty blocks = the default layout). */
+  async getPage(userId: string) {
+    const business: any = await this.ownedBusiness(userId);
+    return {
+      page: business.page || { blocks: [], accentColor: '' },
+      /** The types the builder may use — the UI never hardcodes this list. */
+      blockTypes: Object.values(PageBlockType),
+    };
+  }
+
+  /**
+   * Replace the page design.
+   *
+   * Validated hard, because this document is rendered on a public page: the type must be
+   * one the renderer knows, ids must be unique, block count and payload size are capped,
+   * and unknown prop keys are dropped rather than stored.
+   */
+  async updatePage(userId: string, dto: any) {
+    const business = await this.ownedBusiness(userId);
+
+    const rawBlocks = Array.isArray(dto?.blocks) ? dto.blocks : null;
+    if (!rawBlocks) throw new BadRequestException('blocks must be an array');
+    if (rawBlocks.length > 20) {
+      throw new BadRequestException('A page can have at most 20 sections.');
+    }
+
+    const allowed = new Set(Object.values(PageBlockType));
+    const seenIds = new Set<string>();
+    const blocks = rawBlocks.map((block: any, index: number) => {
+      const type = String(block?.type || '');
+      if (!allowed.has(type as PageBlockType)) {
+        throw new BadRequestException(
+          `Section ${index + 1} has an unknown type "${type}". Allowed: ${[...allowed].join(', ')}`,
+        );
+      }
+
+      const id = String(block?.id || '').trim() || `${type}-${index}`;
+      if (seenIds.has(id)) throw new BadRequestException(`Duplicate section id "${id}".`);
+      seenIds.add(id);
+
+      // Props are free-form per type, but must stay a plain object of bounded size.
+      const props =
+        block?.props && typeof block.props === 'object' && !Array.isArray(block.props)
+          ? block.props
+          : {};
+      if (JSON.stringify(props).length > 20_000) {
+        throw new BadRequestException(`Section ${index + 1} is too large.`);
+      }
+
+      return {
+        id,
+        type,
+        isVisible: block?.isVisible !== false,
+        props,
+      };
+    });
+
+    const accentColor = String(dto?.accentColor || '').trim();
+    if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) {
+      throw new BadRequestException('accentColor must be a hex colour like #FF5C1A.');
+    }
+
+    const updated = await this.businessModel
+      .findByIdAndUpdate(
+        business._id,
+        { $set: { page: { blocks, accentColor, updatedAt: new Date() } } },
+        { new: true },
+      )
+      .lean()
+      .exec();
+
+    return { page: (updated as any)?.page || { blocks, accentColor } };
   }
 
   // ── Automation ─────────────────────────────────────────────────────────────

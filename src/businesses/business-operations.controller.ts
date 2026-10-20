@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -45,6 +46,20 @@ export class BusinessOperationsController {
   @ApiOperation({ summary: 'Request a payout of the available balance' })
   async requestPayout(@Req() req, @Body() body: any) {
     return this.operations.requestPayout(req.user.userId, body);
+  }
+
+  // ── Page builder ───────────────────────────────────────────────────────────
+
+  @Get('page')
+  @ApiOperation({ summary: "The owner's public page design and the available section types" })
+  async getPage(@Req() req) {
+    return this.operations.getPage(req.user.userId);
+  }
+
+  @Put('page')
+  @ApiOperation({ summary: 'Replace the public page design' })
+  async updatePage(@Req() req, @Body() body: any) {
+    return this.operations.updatePage(req.user.userId, body);
   }
 
   // ── Automation ─────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import {
   JobType,
 } from './schemas/business.schema';
 import { Booking, BookingStatus } from '../bookings/schemas/booking.schema';
+import { Service } from '../services/schemas/service.schema';
 import { User } from '../users/schemas/user.schema';
 import { EmailService } from '../notifications/email.service';
 import { SettingsService } from '../settings/settings.service';
@@ -46,7 +47,7 @@ const OWNER_UPDATABLE_FIELDS = [
 // Public business page: no commission rate and no staff details. `ownerId` and the staff
 // account ids are selected only so the job count can be computed live, then stripped below.
 const PUBLIC_BUSINESS_FIELDS =
-  'name slug category description logo banner phone email address isVerified rating createdAt isActive openings ownerId staff.userId';
+  'name slug category description logo banner phone email address isVerified rating createdAt isActive openings ownerId staff.userId page';
 
 // A business owner sees their own history; a very old business must not get an unbounded
 // response. Totals are still computed over every attributed booking.
@@ -95,6 +96,7 @@ export class BusinessesService {
   constructor(
     @InjectModel(Business.name) private businessModel: Model<Business>,
     @InjectModel(Booking.name) private bookingModel: Model<Booking>,
+    @InjectModel(Service.name) private serviceModel: Model<any>,
     private readonly settingsService: SettingsService,
     private readonly emailService: EmailService,
     @InjectModel(User.name) private userModel: Model<any>,
@@ -313,6 +315,16 @@ export class BusinessesService {
     const { openings, isActive, ownerId, staff, ...profile } = business as any;
     const openRoles = (openings || []).filter((opening: any) => opening.isOpen !== false);
 
+    // The owner-designed page travels with the public profile. Only visible blocks are
+    // sent: a hidden section must not be downloadable from the API either.
+    const page = (business as any).page;
+    const publicPage = page
+      ? {
+          accentColor: page.accentColor || '',
+          blocks: (page.blocks || []).filter((block: any) => block.isVisible !== false),
+        }
+      : { accentColor: '', blocks: [] };
+
     // The stored `totalJobs` counter is only a cache; the public page reports the count
     // computed from the same attribution the earnings ledger uses, so the two never disagree.
     const partyIds = [ownerId, ...(staff || []).map((member: any) => member.userId)].filter(
@@ -325,7 +337,28 @@ export class BusinessesService {
         })
       : 0;
 
-    return { business: { ...profile, totalJobs }, openings: openRoles };
+    // The "services" section of a designed page reads live offerings, so the public
+    // payload carries them. Only active ones: a paused service must not be advertised.
+    const serviceOwnerIds = [
+      ownerId,
+      ...(staff || []).map((member: any) => member?.userId).filter(Boolean),
+    ].filter(Boolean);
+    const services = serviceOwnerIds.length
+      ? await this.serviceModel
+          .find({ providerId: { $in: serviceOwnerIds }, isActive: true })
+          .select('title description price priceType durationMinutes images isRemote')
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .lean()
+          .exec()
+      : [];
+
+    return {
+      business: { ...profile, totalJobs },
+      openings: openRoles,
+      page: publicPage,
+      services,
+    };
   }
 
   // ---------------------------------------------------------------------------------------
