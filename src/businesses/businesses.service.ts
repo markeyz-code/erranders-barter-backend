@@ -1,4 +1,5 @@
 import {
+  Logger,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -14,6 +15,8 @@ import {
   JobType,
 } from './schemas/business.schema';
 import { Booking, BookingStatus } from '../bookings/schemas/booking.schema';
+import { User } from '../users/schemas/user.schema';
+import { EmailService } from '../notifications/email.service';
 import { SettingsService } from '../settings/settings.service';
 import { ApplyBusinessDto } from './dto/apply-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
@@ -87,10 +90,14 @@ const DEFAULT_COMMISSION_SETTING = 'service_business_commission_percentage';
 
 @Injectable()
 export class BusinessesService {
+  private readonly logger = new Logger(BusinessesService.name);
+
   constructor(
     @InjectModel(Business.name) private businessModel: Model<Business>,
     @InjectModel(Booking.name) private bookingModel: Model<Booking>,
     private readonly settingsService: SettingsService,
+    private readonly emailService: EmailService,
+    @InjectModel(User.name) private userModel: Model<any>,
   ) {}
 
   // ---------------------------------------------------------------------------------------
@@ -124,7 +131,7 @@ export class BusinessesService {
     }
 
     try {
-      return await this.businessModel.create({
+      const created = await this.businessModel.create({
         ownerId: userId,
         name,
         slug,
@@ -143,6 +150,10 @@ export class BusinessesService {
         rating: 0,
         totalJobs: 0,
       });
+
+      await this.sendAdminInvite(created);
+
+      return created;
     } catch (error) {
       // The pre-check above cannot win a race with a simultaneous apply; the unique index can.
       if (this.isDuplicateKey(error)) {
@@ -157,6 +168,41 @@ export class BusinessesService {
         );
       }
       throw error;
+    }
+  }
+
+  /**
+   * Emails the owner their admin address.
+   *
+   * Delivery failure must never lose the business the applicant just created, so this
+   * is best-effort and only logged: the account exists either way and the owner can
+   * sign in at the portal directly.
+   */
+  private async sendAdminInvite(business: Business): Promise<void> {
+    try {
+      const owner: any = await this.userModel
+        .findById((business as any).ownerId)
+        .select('email firstName')
+        .lean()
+        .exec();
+      if (!owner?.email) return;
+
+      const adminUrl =
+        process.env.BUSINESS_ADMIN_URL || 'https://business.erranders.org';
+      const storefrontBase =
+        process.env.STOREFRONT_URL || 'https://decluttered.erranders.org';
+
+      await this.emailService.sendBusinessAdminInvite(owner.email, {
+        businessName: business.name,
+        slug: business.slug,
+        adminUrl,
+        storefrontUrl: `${storefrontBase}/businesses/${business.slug}`,
+        commissionRate: Number(business.commissionRate) || undefined,
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Could not send the business admin invite for ${business?.slug}: ${error?.message || error}`,
+      );
     }
   }
 
@@ -456,6 +502,42 @@ export class BusinessesService {
    * business's own `commissionRate` applied per completed booking and rounded once per
    * booking, and net = gross - commission.
    */
+  /**
+   * Every booking the business is engaged for, newest first.
+   *
+   * The portal must not show the owner only their own appointments: staff work is
+   * the business's work, so this uses the same attribution as the earnings ledger.
+   */
+  async listBookings(userId: string, query: any) {
+    const business = await this.getOwnedBusiness(userId);
+    const partyIds = this.attributedPartyIds(business);
+
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+
+    const filter: Record<string, unknown> = { providerId: { $in: partyIds } };
+    if (query?.status) filter.status = String(query.status);
+
+    const [rows, total] = await Promise.all([
+      this.bookingModel
+        .find(filter)
+        .populate('serviceId', 'title priceType location isRemote')
+        .populate('customerId', 'firstName lastName phone')
+        .populate('providerId', 'firstName lastName')
+        .sort({ date: -1, startTime: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean()
+        .exec(),
+      this.bookingModel.countDocuments(filter).exec(),
+    ]);
+
+    return {
+      data: rows,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  }
+
   async getEarnings(userId: string) {
     const business = await this.getOwnedBusiness(userId);
 

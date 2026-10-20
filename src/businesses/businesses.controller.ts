@@ -119,6 +119,14 @@ export class BusinessesController {
     return this.businessesService.removeOpening(req.user.userId, id);
   }
 
+  @Get('me/bookings')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bookings attributed to the business (owner and linked staff)' })
+  async listBookings(@Req() req, @Query() query: any) {
+    return this.businessesService.listBookings(req.user.userId, query);
+  }
+
   @Get('me/earnings')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()

@@ -184,6 +184,76 @@ export class EmailService {
     return true;
   }
 
+  /**
+   * Sent the moment a business is created.
+   *
+   * This is the ONLY place an owner learns where their admin lives — the business
+   * dashboard is a separate application from the marketplace they signed up on, so
+   * the email has to carry both addresses: the portal to manage, and the public
+   * storefront customers will land on.
+   */
+  async sendBusinessAdminInvite(
+    to: string,
+    details: {
+      businessName: string;
+      slug: string;
+      adminUrl: string;
+      storefrontUrl: string;
+      commissionRate?: number;
+    },
+  ): Promise<boolean> {
+    const { businessName, slug, adminUrl, storefrontUrl, commissionRate } = details;
+
+    const html = `
+      <h3 style="margin-top: 0; color: #0f172a; font-size: 18px; font-weight: 800;">
+        ${businessName} is live on Declutter
+      </h3>
+      <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+        Your business account has been created. You can start managing work, crew and
+        payouts right away.
+      </p>
+
+      <div style="margin: 22px 0; padding: 18px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px;">
+        <p style="margin: 0 0 6px; color: #9a3412; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;">
+          Your business dashboard
+        </p>
+        <p style="margin: 0; font-size: 15px; font-weight: 700;">
+          <a href="${adminUrl}" style="color: #ea580c; text-decoration: none;">${adminUrl}</a>
+        </p>
+        <p style="margin: 8px 0 0; color: #9a3412; font-size: 12px;">
+          Sign in with this email address and the password you registered with.
+        </p>
+      </div>
+
+      <div style="margin: 22px 0; padding: 18px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px;">
+        <p style="margin: 0 0 6px; color: #475569; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;">
+          Your public page
+        </p>
+        <p style="margin: 0; font-size: 15px; font-weight: 700;">
+          <a href="${storefrontUrl}" style="color: #ea580c; text-decoration: none;">${slug}.erranders.org</a>
+        </p>
+        <p style="margin: 8px 0 0; color: #64748b; font-size: 12px;">
+          This is where students find you, see your open roles and book your services.
+        </p>
+      </div>
+
+      ${
+        typeof commissionRate === 'number'
+          ? `<p style="color: #475569; font-size: 13px;">
+               Declutter's commission on completed work is set at <strong>${commissionRate}%</strong>.
+               You can see the full breakdown in Payments &amp; ledger.
+             </p>`
+          : ''
+      }
+
+      <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">
+        Keep this email — the dashboard address is the only way in.
+      </p>
+    `;
+
+    return this.sendEmail(to, `${businessName} — your Declutter business dashboard`, html);
+  }
+
   async sendPasswordResetEmail(to: string, resetUrl: string): Promise<boolean> {
     const html = `
       <h3 style="margin-top: 0; color: #0f172a; font-size: 18px; font-weight: 800;">
