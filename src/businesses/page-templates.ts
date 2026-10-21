@@ -15,6 +15,13 @@ import { PageBlockType, BusinessType } from './schemas/business.schema';
 export interface TemplateBlock {
   type: PageBlockType;
   props: Record<string, unknown>;
+  /**
+   * Hidden until the owner supplies real content for it.
+   *
+   * A testimonials section with invented reviews is worse than no section: the owner
+   * publishes it as-is and the business is making claims about customers it never had.
+   */
+  hidden?: boolean;
 }
 
 export interface PageTemplate {
@@ -30,118 +37,357 @@ export interface PageTemplate {
 }
 
 /**
+ * Photography shipped with the app, so a new business has a real-looking page on day one
+ * instead of empty grey boxes. Paths are relative to the storefront origin, which keeps
+ * them working on every business subdomain without hard-coding a hostname.
+ */
+const PHOTO = {
+  hair: '/img/nigerian_hair_braiding_1790990545939.jpg',
+  laptop: '/img/nigerian_laptop_repair_1790990557474.jpg',
+  cleaning: '/img/nigerian_room_cleaning_1790990576715.jpg',
+  payment: '/img/nigerian_student_phone_payment_1790990486294.jpg',
+  product: '/img/nigerian_student_snapping_item_1790990467827.jpg',
+  campus: '/img/nigerian_students_campus_1790990496794.jpg',
+  handover: '/img/nigerian_students_exchanging_1790990477525.jpg',
+  moving: '/img/nigerian_students_packing_hostel_1790990458873.jpg',
+  tutoring: '/img/nigerian_tutoring_1790990568804.jpg',
+  desk: '/img/student_business_auth.jpg',
+};
+
+/**
  * Templates are written with the business's own name injected at apply time, so a preview
  * reads like a real page rather than lorem ipsum.
+ *
+ * Every template is a complete page: a hero with a real photograph, an argument for why
+ * the customer should care, the offerings, proof of how to find and trust the business,
+ * and a close. Empty sections are hidden rather than shipped blank.
  */
 export const PAGE_TEMPLATES: PageTemplate[] = [
   {
     id: 'glam',
     name: 'Glam Studio',
-    description: 'Vibrant, visual & appointment-first. Built for nail techs, barbers, braiders, lash artists and makeup pros.',
+    description: 'Vibrant, appointment-first. Built for nail techs, barbers, braiders, lash artists and makeup pros.',
     suits: [BusinessType.SERVICE, BusinessType.PRODUCT, BusinessType.HYBRID],
-    accentColor: '#D946EF',
-    swatch: ['#D946EF', '#FDF4FF', '#1E1B4B'],
+    accentColor: '#DB2777',
+    swatch: ['#DB2777', '#FDF2F8', '#1E1B4B'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Flawless campus looks. Book your chair in seconds — zero lecture clashes.', ctaLabel: 'Book appointment', ctaHref: '#services' } },
-      { type: PageBlockType.SERVICES, props: { title: 'Services & Styles', note: 'Transparent pricing with student-friendly rates.' } },
-      { type: PageBlockType.GALLERY, props: { title: 'Recent Looks & Sets', images: [] } },
-      { type: PageBlockType.PRODUCTS, props: { title: 'Care Products & Add-ons', note: 'Oils, press-ons, and maintenance kits.' } },
-      { type: PageBlockType.HOURS, props: { title: 'Studio / Hostel Hours', rows: [ { day: 'Monday – Friday', hours: '10:00 — 20:00' }, { day: 'Saturday', hours: '9:00 — 19:00' }, { day: 'Sunday', hours: 'By appointment' } ] } },
-      { type: PageBlockType.TESTIMONIALS, props: { title: 'Campus Reviews', items: [] } },
-      { type: PageBlockType.CTA, props: { headline: 'Get your set done today', body: 'Slots fill up quickly on weekends. Lock your time now.', buttonLabel: 'Reserve slot', buttonHref: '#services' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Flawless campus looks, booked around your timetable. No queues, no lecture clashes.',
+          ctaLabel: 'Book your chair',
+          ctaHref: '#services',
+          image: PHOTO.hair,
+        },
+      },
+      {
+        type: PageBlockType.SERVICES,
+        props: { title: 'Services and styles', note: 'Student rates, listed upfront. No haggling at the chair.' },
+      },
+      {
+        type: PageBlockType.GALLERY,
+        props: { title: 'Recent sets', images: [PHOTO.hair, PHOTO.product, PHOTO.handover] },
+      },
+      {
+        type: PageBlockType.PRODUCTS,
+        props: { title: 'Care products', note: 'Oils, press-ons and maintenance kits you can take home.' },
+      },
+      {
+        type: PageBlockType.HOURS,
+        props: {
+          title: 'Studio hours',
+          rows: [
+            { day: 'Monday to Friday', hours: '10:00 — 20:00' },
+            { day: 'Saturday', hours: '9:00 — 19:00' },
+            { day: 'Sunday', hours: 'By appointment' },
+          ],
+        },
+      },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'What clients say', items: [] }, hidden: true },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Weekend slots go fast',
+          body: 'Book now and we will hold your time. Payment on the day is fine.',
+          buttonLabel: 'Reserve a slot',
+          buttonHref: '#services',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Find the studio' } },
     ],
   },
   {
     id: 'craft',
-    name: 'Boutique & Jewelry',
-    description: 'Picture-first aesthetic for handmade jewelry, beads, thrift fashion, perfumes & accessories.',
+    name: 'Boutique and Jewelry',
+    description: 'Picture-first. For handmade jewelry, beads, thrift fashion, perfume and accessories.',
     suits: [BusinessType.PRODUCT, BusinessType.HYBRID],
-    accentColor: '#D97706',
-    swatch: ['#D97706', '#FFFBEB', '#1E293B'],
+    accentColor: '#B45309',
+    swatch: ['#B45309', '#FFFBEB', '#1E293B'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Handcrafted campus pieces, unique drops, delivered to your hostel doorstep.', ctaLabel: 'Explore the drop', ctaHref: '#products' } },
-      { type: PageBlockType.PRODUCTS, props: { title: 'Available Pieces', note: 'Limited stock per drop. Once gone, it’s gone.' } },
-      { type: PageBlockType.GALLERY, props: { title: 'Campus Lookbook', images: [] } },
-      { type: PageBlockType.ABOUT, props: { title: 'Behind the Craft', body: '{{description}}' } },
-      { type: PageBlockType.TESTIMONIALS, props: { title: 'Customer Love', items: [] } },
-      { type: PageBlockType.CTA, props: { headline: 'Want custom orders?', body: 'Message us your design ideas and wrist/ring measurements.', buttonLabel: 'Order custom piece', buttonHref: '#contact' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Handmade pieces, small drops, delivered to your hostel door.',
+          ctaLabel: 'Shop the drop',
+          ctaHref: '#shop',
+          image: PHOTO.product,
+        },
+      },
+      {
+        type: PageBlockType.PRODUCTS,
+        props: { title: 'Available now', note: 'Made in small batches. When a piece is gone, it is gone.' },
+      },
+      {
+        type: PageBlockType.GALLERY,
+        props: { title: 'Lookbook', images: [PHOTO.product, PHOTO.handover, PHOTO.campus] },
+      },
+      { type: PageBlockType.ABOUT, props: { title: 'Made on campus', body: '{{description}}' } },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'Customer love', items: [] }, hidden: true },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Want something custom?',
+          body: 'Send your design idea and measurements. We will tell you what is possible and what it costs.',
+          buttonLabel: 'Start a custom order',
+          buttonHref: '#contact',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Order or ask a question' } },
     ],
   },
   {
     id: 'academy',
-    name: 'Academy & Tutoring',
-    description: 'Built for tutorial centers, exam prep, course summaries, past questions & academic mentorship.',
+    name: 'Academy and Tutoring',
+    description: 'Built for tutorial centres, exam prep, course summaries, past questions and academic mentoring.',
     suits: [BusinessType.TUTORIAL, BusinessType.SERVICE, BusinessType.HYBRID],
-    accentColor: '#2563EB',
-    swatch: ['#2563EB', '#EFF6FF', '#0F172A'],
+    accentColor: '#1D4ED8',
+    swatch: ['#1D4ED8', '#EFF6FF', '#0F172A'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Clear explanations, past questions, and high-yield notes taught by senior students who aced the course.', ctaLabel: 'Join tutorial class', ctaHref: '#services' } },
-      { type: PageBlockType.ABOUT, props: { title: 'How we help you ace exams', body: '{{description}}' } },
-      { type: PageBlockType.SERVICES, props: { title: 'Classes & Courses', note: 'Interactive group sessions and private 1-on-1 tutoring available.' } },
-      { type: PageBlockType.HOURS, props: { title: 'Lecture & Class Schedule', rows: [ { day: 'Monday & Wednesday', hours: '16:00 — 18:30' }, { day: 'Friday', hours: '15:00 — 17:30' }, { day: 'Saturday Revision', hours: '10:00 — 14:00' } ] } },
-      { type: PageBlockType.FAQ, props: { title: 'Frequently Asked Questions', items: [
-        { q: 'Where do classes take place?', a: 'Classes are held in designated campus lecture theaters and online via live video rooms.' },
-        { q: 'How do I access lecture notes & past questions?', a: 'All enrolled students get instant access to the digital resource vault watermarked for your account.' },
-        { q: 'Can I join mid-semester?', a: 'Yes! You get catch-up notes and recorded session links.' }
-      ] } },
-      { type: PageBlockType.CONTACT, props: { title: 'Join our Student WhatsApp Group' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Clear explanations, past questions and high-yield notes, taught by students who aced the course.',
+          ctaLabel: 'Join a class',
+          ctaHref: '#services',
+          image: PHOTO.tutoring,
+        },
+      },
+      { type: PageBlockType.ABOUT, props: { title: 'How we help you pass', body: '{{description}}' } },
+      {
+        type: PageBlockType.SERVICES,
+        props: { title: 'Classes and courses', note: 'Group sessions and private one-on-one tutoring.' },
+      },
+      {
+        type: PageBlockType.GALLERY,
+        props: { title: 'Inside a session', images: [PHOTO.campus, PHOTO.tutoring, PHOTO.handover] },
+      },
+      {
+        type: PageBlockType.HOURS,
+        props: {
+          title: 'Class schedule',
+          rows: [
+            { day: 'Monday and Wednesday', hours: '16:00 — 18:30' },
+            { day: 'Friday', hours: '15:00 — 17:30' },
+            { day: 'Saturday revision', hours: '10:00 — 14:00' },
+            { day: 'Sunday', hours: 'Closed' },
+          ],
+        },
+      },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'What students say', items: [] }, hidden: true },
+      {
+        type: PageBlockType.FAQ,
+        props: {
+          title: 'Common questions',
+          items: [
+            { q: 'Where do classes hold?', a: 'On campus. We share the exact room when you book, along with directions.' },
+            { q: 'Can I pay per session?', a: 'Yes. Each class is booked and paid for individually, so you are not tied into a full term upfront.' },
+            { q: 'What if I have to miss a class?', a: 'Message us at least two hours before and we will move you into another group that week.' },
+          ],
+        },
+      },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Not sure which class you need?',
+          body: 'Send your course code and your current score. We will tell you honestly whether we can help.',
+          buttonLabel: 'Get in touch',
+          buttonHref: '#contact',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Find us' } },
     ],
   },
   {
     id: 'techfix',
-    name: 'Tech & Gadget Lab',
-    description: 'Fast, trustworthy gadget repair, screen replacements, accessories & laptop servicing.',
+    name: 'Tech and Gadget Lab',
+    description: 'For repairs, screen replacements, accessories and laptop servicing.',
     suits: [BusinessType.SERVICE, BusinessType.PRODUCT, BusinessType.HYBRID],
-    accentColor: '#0284C7',
-    swatch: ['#0284C7', '#F0F9FF', '#0F172A'],
+    accentColor: '#0369A1',
+    swatch: ['#0369A1', '#F0F9FF', '#0F172A'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Same-day campus phone & laptop fixes. Transparent diagnostics with zero stories.', ctaLabel: 'Get diagnostic quote', ctaHref: '#services' } },
-      { type: PageBlockType.SERVICES, props: { title: 'Repair Services', note: 'Screens, batteries, charging ports, OS re-installation, cleaning.' } },
-      { type: PageBlockType.PRODUCTS, props: { title: 'Accessories & Parts', note: 'Fast chargers, durable cables, tempered glass, cases.' } },
-      { type: PageBlockType.ABOUT, props: { title: 'Warranty & Quality Promise', body: 'Every repair comes with our 30-day student warranty. We test your device together before payment.' } },
-      { type: PageBlockType.CONTACT, props: { title: 'Hostel Drop-off Points' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Same-day phone and laptop repairs on campus. A diagnosis first, no guessing.',
+          ctaLabel: 'Get a quote',
+          ctaHref: '#services',
+          image: PHOTO.laptop,
+        },
+      },
+      {
+        type: PageBlockType.SERVICES,
+        props: { title: 'Repairs we do', note: 'Screens, batteries, charging ports, software and cleaning.' },
+      },
+      {
+        type: PageBlockType.PRODUCTS,
+        props: { title: 'Parts and accessories', note: 'Chargers, cables, tempered glass and cases, in stock.' },
+      },
+      { type: PageBlockType.ABOUT, props: { title: 'Our promise', body: '{{description}}' } },
+      {
+        type: PageBlockType.HOURS,
+        props: {
+          title: 'When you can drop off',
+          rows: [
+            { day: 'Monday to Friday', hours: '9:00 — 19:00' },
+            { day: 'Saturday', hours: '10:00 — 17:00' },
+            { day: 'Sunday', hours: 'Closed' },
+          ],
+        },
+      },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'What customers say', items: [] }, hidden: true },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Not sure what is wrong with it?',
+          body: 'Send a photo and what it is doing. We will tell you what it likely costs before you come in.',
+          buttonLabel: 'Ask an engineer',
+          buttonHref: '#contact',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Drop-off points' } },
     ],
   },
   {
     id: 'bites',
-    name: 'Campus Bites & Bakery',
-    description: 'Fresh hostel treats, cakes, parfaits, cookies and dorm meal prep deliveries.',
+    name: 'Campus Bites and Bakery',
+    description: 'For hostel treats, cakes, parfaits, cookies and meal prep deliveries.',
     suits: [BusinessType.PRODUCT, BusinessType.HYBRID],
-    accentColor: '#EA580C',
-    swatch: ['#EA580C', '#FFF7ED', '#1C1917'],
+    accentColor: '#C2410C',
+    swatch: ['#C2410C', '#FFF7ED', '#1C1917'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Freshly baked, deliciously packed, delivered straight to your hall room.', ctaLabel: 'Order treats', ctaHref: '#products' } },
-      { type: PageBlockType.PRODUCTS, props: { title: 'Today’s Fresh Menu', note: 'Baked daily in small batches with premium ingredients.' } },
-      { type: PageBlockType.GALLERY, props: { title: 'Past Orders & Celebrations', images: [] } },
-      { type: PageBlockType.ABOUT, props: { title: 'Custom Birthday & Event Cakes', body: '{{description}}' } },
-      { type: PageBlockType.TESTIMONIALS, props: { title: 'Hostel Foodies Say', items: [] } },
-      { type: PageBlockType.CTA, props: { headline: 'Pre-order for your birthday or special week', body: 'Order at least 48 hours in advance for customized celebration boxes.', buttonLabel: 'Pre-order now', buttonHref: '#contact' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Baked fresh, packed properly, delivered to your hall.',
+          ctaLabel: 'See the menu',
+          ctaHref: '#shop',
+          image: PHOTO.product,
+        },
+      },
+      {
+        type: PageBlockType.PRODUCTS,
+        props: { title: 'On the menu today', note: 'Baked in small batches. Tell us allergies when you order.' },
+      },
+      {
+        type: PageBlockType.GALLERY,
+        props: { title: 'Orders and celebrations', images: [PHOTO.product, PHOTO.moving, PHOTO.handover] },
+      },
+      { type: PageBlockType.ABOUT, props: { title: 'Cakes for the occasion', body: '{{description}}' } },
+      {
+        type: PageBlockType.HOURS,
+        props: {
+          title: 'Order windows',
+          rows: [
+            { day: 'Monday to Friday', hours: 'Orders close 4:00 pm' },
+            { day: 'Saturday', hours: 'Orders close 2:00 pm' },
+            { day: 'Sunday', hours: 'Closed' },
+          ],
+        },
+      },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'What people order again', items: [] }, hidden: true },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Celebrating something?',
+          body: 'Birthday boxes and event trays need 48 hours notice so we can do them properly.',
+          buttonLabel: 'Pre-order',
+          buttonHref: '#contact',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Order here' } },
     ],
   },
   {
     id: 'fresh',
-    name: 'Fresh & Logistics',
-    description: 'Clean and calm. Good for cleaning, laundry, moving porters and room fumigation.',
+    name: 'Cleaning, Laundry and Moving',
+    description: 'Calm and practical. For cleaning, laundry, moving porters, fumigation and hostel services.',
     suits: [BusinessType.SERVICE, BusinessType.HYBRID],
     accentColor: '#0F766E',
     swatch: ['#0F766E', '#F0FDFA', '#0F172A'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: 'Reliable campus operations, on time, and priced for students.', ctaLabel: 'Book service', ctaHref: '#services' } },
-      { type: PageBlockType.SERVICES, props: { title: 'What we do', note: 'Fixed rates with no hidden fees.' } },
-      { type: PageBlockType.ABOUT, props: { title: 'About our team', body: '{{description}}' } },
-      { type: PageBlockType.HOURS, props: { title: 'Operation Hours', rows: [ { day: 'Monday – Friday', hours: '8:00 — 18:00' }, { day: 'Saturday', hours: '9:00 — 16:00' }, { day: 'Sunday', hours: 'Closed' } ] } },
-      { type: PageBlockType.CONTACT, props: { title: 'Book or Contact' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: 'Turn up to a clean room. Book a service and get on with your day.',
+          ctaLabel: 'Book a service',
+          ctaHref: '#services',
+          image: PHOTO.cleaning,
+        },
+      },
+      { type: PageBlockType.SERVICES, props: { title: 'What we do', note: 'Fixed rates. What we quote is what you pay.' } },
+      { type: PageBlockType.ABOUT, props: { title: 'How we work', body: '{{description}}' } },
+      {
+        type: PageBlockType.GALLERY,
+        props: { title: 'Our work', images: [PHOTO.cleaning, PHOTO.moving, PHOTO.campus] },
+      },
+      {
+        type: PageBlockType.HOURS,
+        props: {
+          title: 'When we operate',
+          rows: [
+            { day: 'Monday to Friday', hours: '8:00 — 18:00' },
+            { day: 'Saturday', hours: '9:00 — 16:00' },
+            { day: 'Sunday', hours: 'Closed' },
+          ],
+        },
+      },
+      { type: PageBlockType.TESTIMONIALS, props: { title: 'What customers say', items: [] }, hidden: true },
+      {
+        type: PageBlockType.CTA,
+        props: {
+          headline: 'Need a slot this week?',
+          body: 'Tell us the date and the room. Most jobs can be done the next day.',
+          buttonLabel: 'Book now',
+          buttonHref: '#contact',
+        },
+      },
+      { type: PageBlockType.CONTACT, props: { title: 'Book or contact' } },
     ],
   },
   {
     id: 'minimal',
     name: 'Minimal',
-    description: 'Just the essentials. Fast to load, easy to read, perfect for any campus hustle.',
+    description: 'Just the essentials. Fast to load and easy to read, for any campus hustle.',
     suits: [BusinessType.SERVICE, BusinessType.PRODUCT, BusinessType.TUTORIAL, BusinessType.HYBRID],
     accentColor: '#0F172A',
     swatch: ['#0F172A', '#F8FAFC', '#64748B'],
     blocks: [
-      { type: PageBlockType.HERO, props: { headline: '{{name}}', subheadline: '{{description}}', ctaLabel: 'Get in touch', ctaHref: '#contact' } },
+      {
+        type: PageBlockType.HERO,
+        props: {
+          headline: '{{name}}',
+          subheadline: '{{description}}',
+          ctaLabel: 'Get in touch',
+          ctaHref: '#contact',
+          image: PHOTO.campus,
+        },
+      },
       { type: PageBlockType.SERVICES, props: { title: 'Services' } },
       { type: PageBlockType.PRODUCTS, props: { title: 'Products' } },
       { type: PageBlockType.CONTACT, props: { title: 'Contact' } },
@@ -219,7 +465,7 @@ export const materialiseTemplate = (
     blocks: template.blocks.map((block, index) => ({
       id: `${template.id}-${block.type}-${index}`,
       type: block.type,
-      isVisible: true,
+      isVisible: !block.hidden,
       props: fill(block.props) as Record<string, unknown>,
     })),
   };
