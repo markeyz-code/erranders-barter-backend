@@ -12,6 +12,7 @@ import {
   Business,
   BusinessStaff,
   BusinessType,
+  BusinessVertical,
   JobOpening,
   JobType,
 } from './schemas/business.schema';
@@ -29,7 +30,7 @@ import { UpdateStaffDto } from './dto/update-staff.dto';
 import { CreateOpeningDto } from './dto/create-opening.dto';
 import { UpdateOpeningDto } from './dto/update-opening.dto';
 import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto';
-import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate } from './page-templates';
+import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate, verticalFor } from './page-templates';
 
 /**
  * Owner-settable profile fields, and the complete list: anything not named here cannot be
@@ -54,7 +55,7 @@ const OWNER_UPDATABLE_FIELDS = [
 // Public business page: no commission rate and no staff details. `ownerId` and the staff
 // account ids are selected only so the job count can be computed live, then stripped below.
 const PUBLIC_BUSINESS_FIELDS =
-  'name slug category description logo banner phone email address isVerified rating createdAt isActive businessType openings ownerId staff.userId page products studyMode templateId';
+  'name slug category description logo banner phone email address isVerified rating createdAt isActive businessType vertical openings ownerId staff.userId page products resources studyMode templateId';
 
 // A business owner sees their own history; a very old business must not get an unbounded
 // response. Totals are still computed over every attributed booking.
@@ -179,6 +180,13 @@ export class BusinessesService {
         ? (dto.businessType as BusinessType)
         : detectedType;
 
+    // The vertical is inferred here, at the only moment we know what the owner typed.
+    // It decides the starting template and, later, which tools their sidebar shows.
+    const vertical =
+      dto?.vertical && Object.values(BusinessVertical).includes(dto.vertical as BusinessVertical)
+        ? (dto.vertical as BusinessVertical)
+        : verticalFor(categoryClean, businessType);
+
     const templateId = dto?.templateId || defaultTemplateFor(categoryClean, businessType);
     const chosenTemplate =
       PAGE_TEMPLATES.find((t) => t.id === templateId) ||
@@ -203,6 +211,7 @@ export class BusinessesService {
         isActive: true,
         isVerified: false,
         businessType,
+        vertical,
         templateId,
         page: initialPage,
         studyMode: {
@@ -580,7 +589,14 @@ export class BusinessesService {
       }));
 
     return {
-      business: { ...profile, totalJobs },
+      business: {
+        ...profile,
+        totalJobs,
+        // A tutor's notes are student-only. The page may say how many exist, but the
+        // contents are never in this payload — only an enrolled student can open them.
+        resourceCount: Array.isArray((profile as any).resources) ? (profile as any).resources.length : 0,
+        resources: undefined,
+      },
       openings: openRoles,
       page: publicPage,
       services,

@@ -47,4 +47,10 @@ export class ApplyBusinessDto {
   @IsString()
   @MaxLength(50)
   templateId?: string;
+
+  /** Optional: normally inferred from the category, but an owner may be explicit. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  vertical?: string;
 }

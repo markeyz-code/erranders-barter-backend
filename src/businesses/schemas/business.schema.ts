@@ -31,6 +31,7 @@ export enum PageBlockType {
   TESTIMONIALS = 'testimonials',
   CONTACT = 'contact',
   CTA = 'cta',
+  RESOURCES = 'resources',
 }
 
 /**
@@ -62,6 +63,30 @@ export interface BusinessPage {
  * needs a resource library, a jewellery seller needs stock and cost prices) and which
  * default page template suits it.
  */
+/**
+ * What kind of business this actually is.
+ *
+ * `businessType` answers "does it sell services, products, or both" — a question about
+ * transactions. A vertical answers "what does this owner run", which decides which
+ * template suits them and, more importantly, which tools belong in their sidebar: a
+ * barber needs a chair schedule, a tutor needs a gated resource vault, and neither wants
+ * to see the other's screens.
+ */
+export enum BusinessVertical {
+  FUMIGATION = 'fumigation',
+  BAKERY = 'bakery',
+  JEWELRY = 'jewelry',
+  BARBER = 'barber',
+  NAILS = 'nails',
+  THRIFT = 'thrift',
+  TUTOR = 'tutor',
+  CLEANING = 'cleaning',
+  LAUNDRY = 'laundry',
+  TECH = 'tech',
+  FOOD = 'food',
+  GENERAL = 'general',
+}
+
 export enum BusinessType {
   SERVICE = 'service',
   PRODUCT = 'product',
@@ -349,6 +374,10 @@ export class Business extends Document {
    */
   @Prop({ type: String, enum: BusinessType, default: BusinessType.SERVICE, index: true })
   businessType: BusinessType;
+
+  /** What the owner runs; decides the template and the sidebar. */
+  @Prop({ type: String, enum: BusinessVertical, default: BusinessVertical.GENERAL, index: true })
+  vertical: BusinessVertical;
 
   /** The page template last applied, so the owner can see what they started from. */
   @Prop({ default: '' })
