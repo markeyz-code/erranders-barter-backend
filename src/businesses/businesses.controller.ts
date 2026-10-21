@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BusinessesService } from './businesses.service';
+import { VERTICAL_CATALOG } from './verticals';
 import { ApplyBusinessDto } from './dto/apply-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
@@ -35,6 +36,20 @@ export class BusinessesController {
   @ApiOperation({ summary: 'Self-serve: create an owner account and its business in one step' })
   async signup(@Body() body: any) {
     return this.businessesService.signup(body);
+  }
+
+  @Get('verticals')
+  @ApiOperation({ summary: 'The business types we support, with the template each starts from' })
+  supportedVerticals() {
+    return {
+      verticals: VERTICAL_CATALOG.map((option) => ({
+        id: option.id,
+        label: option.label,
+        blurb: option.blurb,
+        examples: option.examples,
+        templateId: option.templateId,
+      })),
+    };
   }
 
   @Get()

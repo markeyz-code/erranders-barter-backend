@@ -31,6 +31,7 @@ import { CreateOpeningDto } from './dto/create-opening.dto';
 import { UpdateOpeningDto } from './dto/update-opening.dto';
 import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto';
 import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate, verticalFor } from './page-templates';
+import { resolveVertical } from './verticals';
 
 /**
  * Owner-settable profile fields, and the complete list: anything not named here cannot be
@@ -180,14 +181,16 @@ export class BusinessesService {
         ? (dto.businessType as BusinessType)
         : detectedType;
 
-    // The vertical is inferred here, at the only moment we know what the owner typed.
-    // It decides the starting template and, later, which tools their sidebar shows.
-    const vertical =
-      dto?.vertical && Object.values(BusinessVertical).includes(dto.vertical as BusinessVertical)
-        ? (dto.vertical as BusinessVertical)
-        : verticalFor(categoryClean, businessType);
+    // The owner now picks their business type explicitly at signup, so that choice is
+    // authoritative: it decides the template and, later, which tools their sidebar shows.
+    const chosenVertical = resolveVertical(dto?.vertical);
+    const vertical = chosenVertical ? chosenVertical.id : verticalFor(categoryClean, businessType);
 
-    const templateId = dto?.templateId || defaultTemplateFor(categoryClean, businessType);
+    const storedCategory = chosenVertical ? chosenVertical.category : categoryClean;
+
+    const templateId =
+      dto?.templateId ||
+      (chosenVertical ? chosenVertical.templateId : defaultTemplateFor(categoryClean, businessType));
     const chosenTemplate =
       PAGE_TEMPLATES.find((t) => t.id === templateId) ||
       PAGE_TEMPLATES.find((t) => t.id === 'minimal') ||
@@ -199,7 +202,7 @@ export class BusinessesService {
         ownerId: userId,
         name,
         slug,
-        category: categoryClean,
+        category: storedCategory,
         description,
         // A generated mark, so a brand-new business still has a preview image to share.
         // Owners replace it from Settings.
@@ -351,6 +354,9 @@ export class BusinessesService {
         phone: dto?.businessPhone,
         email: dto?.businessEmail || email,
         address: dto?.address,
+        // The type picked at signup must survive this hand-off; without it the picker's
+        // choice was silently discarded and every signup landed on the generic template.
+        vertical: dto?.vertical,
       });
 
       // `apply` already emails the admin invite through sendAdminInvite.
