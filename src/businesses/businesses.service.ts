@@ -193,7 +193,9 @@ export class BusinessesService {
         slug,
         category: categoryClean,
         description,
-        logo: '',
+        // A generated mark, so a brand-new business still has a preview image to share.
+        // Owners replace it from Settings.
+        logo: this.generatedLogo(name),
         banner: '',
         phone: this.cleanText(dto?.phone),
         email: this.cleanText(dto?.email).toLowerCase(),
@@ -205,7 +207,7 @@ export class BusinessesService {
         page: initialPage,
         studyMode: {
           isActive: false,
-          notice: '📚 In lectures right now! Orders are accepted and will be packed & delivered after class.',
+          notice: 'In lectures right now. Orders are accepted and will be packed and delivered after class.',
           autoReply: 'Thank you for reaching out! I am currently in class. I will attend to your order immediately after lectures.',
           lectureSchedule: [],
         },
@@ -285,6 +287,20 @@ export class BusinessesService {
    *  - the whole thing is refused if the email already has an account, because silently
    *    attaching a second business to an existing login would be a tenant mix-up.
    */
+
+  /**
+   * A deterministic initials mark for a business that has not uploaded a logo.
+   *
+   * Without this a new business has no `logo`, so `og:image` is empty and its shared
+   * link previews as a plain text card — the opposite of the point of a storefront.
+   */
+  private generatedLogo(name: string): string {
+    const label = encodeURIComponent(String(name || 'Business').trim()).replace(/%20/g, '+');
+    const palette = ['EA580C', '1D4ED8', '0F766E', '7C3AED', 'B91C1C', '0369A1'];
+    const seed = Array.from(String(name || '')).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return `https://ui-avatars.com/api/?name=${label}&background=${palette[seed % palette.length]}&color=fff&size=256&bold=true`;
+  }
+
   async signup(dto: any) {
     const firstName = this.requireText(dto?.firstName, 'firstName', 60);
     const lastName = this.requireText(dto?.lastName, 'lastName', 60);
