@@ -54,6 +54,18 @@ export class Booking extends Document {
   @Prop({ required: true, default: 0 })
   remainingBalance: number;
 
+  // Student Client Booking Facilitation Fee (3.0%, min ₦150)
+  @Prop({ default: 150 })
+  serviceFee: number;
+
+  // Provider Platform Commission (5.0%)
+  @Prop({ default: 0 })
+  providerCommission: number;
+
+  // Net earnings credited to provider wallet upon completion
+  @Prop({ default: 0 })
+  providerPayout: number;
+
   @Prop({ default: false })
   commitmentFeePaid: boolean;
 
@@ -62,6 +74,9 @@ export class Booking extends Document {
 
   @Prop({ type: String, enum: ['unpaid', 'commitment_paid', 'fully_paid'], default: 'unpaid' })
   paymentStatus: string;
+
+  @Prop()
+  paymentReference?: string;
 
   @Prop({ default: false })
   payoutReleased: boolean;

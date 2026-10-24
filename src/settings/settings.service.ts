@@ -16,8 +16,11 @@ export class SettingsService implements OnModuleInit {
   async onModuleInit() {
     const defaultSettings = [
       { key: 'base_errander_fee', value: 500 },
-      { key: 'escrow_fee_percentage', value: 0 },
-      { key: 'seller_commission_percentage', value: 0 },
+      { key: 'escrow_fee_percentage', value: 2.5 }, // 2.5% Buyer Protection & Escrow
+      { key: 'seller_commission_percentage', value: 3.0 }, // 3.0% Seller Platform Fee
+      { key: 'swap_protection_fee', value: 250 }, // Flat ₦250 Swap Protection & Verification Fee
+      { key: 'service_booking_fee_percentage', value: 3.0 }, // 3.0% Client Booking Facilitation Fee
+      { key: 'service_provider_commission_percentage', value: 5.0 }, // 5.0% Provider Platform Fee
       { key: 'errander_commission_percentage', value: 0 },
       { key: 'promoted_listing_fee', value: 0 },
       { key: 'service_business_commission_percentage', value: 15 },

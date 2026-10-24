@@ -116,6 +116,15 @@ export class BookingsService {
       }
     }
 
+    // Student Booking Facilitation Fee (3.0%, min ₦150, max ₦800)
+    let serviceFee = 0;
+    if (calculatedAmount > 0) {
+      serviceFee = Math.min(800, Math.max(150, Math.round(calculatedAmount * 0.03)));
+    }
+    const commissionRate = 0.05;
+    const providerCommission = calculatedAmount > 0 ? Math.round(calculatedAmount * commissionRate) : 0;
+    const providerPayout = calculatedAmount > 0 ? calculatedAmount - providerCommission : 0;
+
     const booking = new this.bookingModel({
       serviceId: service._id,
       providerId: service.providerId,
@@ -128,9 +137,20 @@ export class BookingsService {
       amount: calculatedAmount,
       commitmentFee,
       remainingBalance,
-      commitmentFeePaid: true,
+      serviceFee,
+      providerCommission,
+      providerPayout,
+      commitmentFeePaid: commitmentFee === 0 || !!dto.paymentReference,
       remainingBalancePaid: remainingBalance === 0,
-      paymentStatus: remainingBalance === 0 ? 'fully_paid' : 'commitment_paid',
+      paymentStatus:
+        commitmentFee === 0 && remainingBalance === 0
+          ? 'fully_paid'
+          : dto.paymentReference
+          ? remainingBalance === 0
+            ? 'fully_paid'
+            : 'commitment_paid'
+          : 'unpaid',
+      paymentReference: dto.paymentReference || '',
       payoutReleased: false,
       status: BookingStatus.PENDING,
       notes: typeof dto.notes === 'string' ? dto.notes.trim() : '',
@@ -453,7 +473,7 @@ export class BookingsService {
     // If fully paid upfront (e.g. <= ₦1,000), release payout directly to provider's wallet
     if (!hasRemainingBalance && (booking.amount || 0) > 0) {
       const commissionRate = 0.05;
-      const providerPayout = Math.round((booking.amount || 0) * (1 - commissionRate));
+      const providerPayout = booking.providerPayout || Math.round((booking.amount || 0) * (1 - commissionRate));
       if (providerPayout > 0) {
         await this.userModel.findByIdAndUpdate(booking.providerId, {
           $inc: { walletBalance: providerPayout },
@@ -515,7 +535,7 @@ export class BookingsService {
     }
 
     const commissionRate = 0.05; // 5% platform fee
-    const providerPayout = Math.round((booking.amount || 0) * (1 - commissionRate));
+    const providerPayout = booking.providerPayout || Math.round((booking.amount || 0) * (1 - commissionRate));
 
     const updated = await this.bookingModel
       .findByIdAndUpdate(

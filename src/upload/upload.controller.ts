@@ -27,6 +27,14 @@ export class UploadController {
     return this.uploadService.uploadFile(file, 'video');
   }
 
+  @Post('audio')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a voice note / audio file' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async uploadAudio(@UploadedFile() file: Express.Multer.File) {
+    return this.uploadService.uploadFile(file, 'audio', 'barter/audio');
+  }
+
   @Post()
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a file with ?resourceType=image|video|raw|audio' })

@@ -39,6 +39,9 @@ export class Item extends Document {
   @Prop([String])
   videos: string[];
 
+  @Prop()
+  video360?: string;
+
   @Prop([String])
   tags: string[];
 

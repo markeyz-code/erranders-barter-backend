@@ -21,6 +21,7 @@ const ITEM_UPDATABLE_FIELDS = [
   'category',
   'images',
   'videos',
+  'video360',
 ];
 
 @Injectable()

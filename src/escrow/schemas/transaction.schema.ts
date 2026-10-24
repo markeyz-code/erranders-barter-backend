@@ -13,6 +13,7 @@ export class Transaction extends Document {
   @Prop({ required: true }) buyerId: string;
   @Prop({ required: true }) sellerId: string;
   @Prop({ required: true }) itemId: string;
+  @Prop() batchId?: string;
   @Prop({ required: true }) amount: number; // total amount paid
   @Prop({ default: 0 }) itemPrice: number;
   @Prop({ default: 0 }) deliveryFee: number;

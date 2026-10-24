@@ -24,4 +24,8 @@ export class CreateBookingDto {
   @IsString()
   @MaxLength(1000)
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentReference?: string;
 }

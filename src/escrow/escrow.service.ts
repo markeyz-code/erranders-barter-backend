@@ -31,7 +31,7 @@ export class EscrowService {
     private notificationsService: NotificationsService,
   ) {}
 
-  async initiate(dto: { buyerId: string; sellerId: string; itemId: string; amount: number; deliveryMethod?: string; deliveryAddress?: string; paymentReference?: string; deliveryFee?: number }): Promise<Transaction> {
+  async initiate(dto: { buyerId: string; sellerId: string; itemId: string; amount: number; deliveryMethod?: string; deliveryAddress?: string; paymentReference?: string; deliveryFee?: number; batchId?: string; moverId?: string; moverScheduleSlot?: string }): Promise<Transaction> {
     if (dto.buyerId === dto.sellerId) {
       throw new BadRequestException('You cannot purchase your own item');
     }
@@ -59,6 +59,13 @@ export class EscrowService {
       throw new BadRequestException('This item was just reserved or purchased by another student. Please refresh.');
     }
 
+    if (dto.batchId) {
+      await this.itemModel.updateMany(
+        { batchId: dto.batchId, status: ItemStatus.ACTIVE },
+        { $set: { status: ItemStatus.PENDING } },
+      );
+    }
+
     let deliveryFee = 0;
     if (dto.deliveryMethod === 'errander') {
       if (dto.deliveryFee !== undefined && dto.deliveryFee !== null) {
@@ -79,18 +86,15 @@ export class EscrowService {
     }
 
     const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
-    if (escrowFeePercVal === null || escrowFeePercVal === undefined) {
-      throw new BadRequestException(
-        'Escrow is not priced yet: escrow_fee_percentage is not configured. Ask an admin to set it.',
-      );
-    }
-    const escrowFeePerc = Number(escrowFeePercVal);
+    const escrowFeePerc = (escrowFeePercVal !== null && escrowFeePercVal !== undefined && Number(escrowFeePercVal) > 0)
+      ? Number(escrowFeePercVal)
+      : 2.5; // Default 2.5% Student Buyer Protection & Escrow Fee
     
     // We know itemPrice.
     const itemPrice = item.price;
-    // Calculate escrow fee based on itemPrice + deliveryFee
+    // Calculate student buyer protection fee: 2.5% with min ₦100 (or 0 if itemPrice is 0)
     const baseTotal = itemPrice + deliveryFee;
-    const escrowFee = (baseTotal * escrowFeePerc) / 100;
+    const escrowFee = itemPrice > 0 ? Math.max(100, Math.round((baseTotal * escrowFeePerc) / 100)) : 0;
     
     // Create tx
     const tx = new this.txModel({ 
@@ -182,6 +186,9 @@ export class EscrowService {
 
     // Mark item as SOLD OUT permanently
     await this.itemModel.findByIdAndUpdate(tx.itemId, { $set: { status: ItemStatus.SOLD } }).exec();
+    if (tx.batchId) {
+      await this.itemModel.updateMany({ batchId: tx.batchId }, { $set: { status: ItemStatus.SOLD } }).exec();
+    }
 
     // Aggressive completion notifications & email
     void (async () => {
@@ -224,9 +231,15 @@ export class EscrowService {
   /** Seller payout and platform commission for a transaction, using the live setting. */
   private async computeSellerPayout(tx: Transaction) {
     const sellerCommVal = await this.settingsService.getSetting('seller_commission_percentage');
-    const sellerCommPerc = sellerCommVal ? Number(sellerCommVal) : 0;
+    const sellerCommPerc = (sellerCommVal !== null && sellerCommVal !== undefined && Number(sellerCommVal) > 0)
+      ? Number(sellerCommVal)
+      : 3.0; // Default 3.0% Seller Platform Fee
     const itemPrice = Number(tx.itemPrice || 0);
-    const commission = this.roundMoney((itemPrice * sellerCommPerc) / 100);
+    let commission = 0;
+    if (itemPrice > 0) {
+      commission = Math.max(100, Math.round((itemPrice * sellerCommPerc) / 100));
+      if (commission > itemPrice) commission = itemPrice;
+    }
     const payout = this.roundMoney(itemPrice - commission);
     return { payout, commission, percentage: sellerCommPerc };
   }
@@ -271,8 +284,86 @@ export class EscrowService {
     return savedTx;
   }
 
-  async findByUser(userId: string): Promise<Transaction[]> {
-    return this.txModel.find({ $or: [{ buyerId: userId }, { sellerId: userId }] }).sort({ createdAt: -1 }).exec();
+  async findByUser(userId: string): Promise<any[]> {
+    const transactions = await this.txModel
+      .find({ $or: [{ buyerId: userId }, { sellerId: userId }] })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    const userIds = Array.from(
+      new Set(
+        transactions
+          .flatMap((tx) => [tx.buyerId, tx.sellerId])
+          .filter((id) => typeof id === 'string' && Types.ObjectId.isValid(id)),
+      ),
+    );
+    const itemIds = Array.from(
+      new Set(
+        transactions
+          .map((tx) => tx.itemId)
+          .filter((id) => typeof id === 'string' && Types.ObjectId.isValid(id)),
+      ),
+    );
+
+    const [users, items] = await Promise.all([
+      userIds.length
+        ? this.userModel
+            .find({ _id: { $in: userIds } })
+            .select('firstName lastName phone email avatar hostel isVerified')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+      itemIds.length
+        ? this.itemModel
+            .find({ _id: { $in: itemIds } })
+            .select('title images price location status')
+            .lean()
+            .exec()
+        : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
+    const itemMap = new Map(items.map((it: any) => [it._id.toString(), it]));
+
+    return transactions.map((tx: any) => {
+      const isPaid = tx.status === TransactionStatus.HELD_IN_ESCROW || tx.status === TransactionStatus.RELEASED;
+      const rawSeller = userMap.get(String(tx.sellerId)) || null;
+      const rawBuyer = userMap.get(String(tx.buyerId)) || null;
+      const rawItem = itemMap.get(String(tx.itemId)) || null;
+
+      return {
+        ...tx,
+        item: rawItem
+          ? {
+              ...rawItem,
+              // Only expose specific pickup location once payment is made and finalised in escrow
+              location: isPaid ? rawItem.location : '🔒 Campus Location (Revealed after payment)',
+            }
+          : null,
+        seller: rawSeller
+          ? {
+              firstName: rawSeller.firstName,
+              lastName: rawSeller.lastName,
+              avatar: rawSeller.avatar,
+              isVerified: rawSeller.isVerified,
+              // Only reveal phone & exact hostel after payment is finalised in escrow
+              phone: isPaid ? rawSeller.phone : undefined,
+              hostel: isPaid ? rawSeller.hostel : undefined,
+            }
+          : null,
+        buyer: rawBuyer
+          ? {
+              firstName: rawBuyer.firstName,
+              lastName: rawBuyer.lastName,
+              avatar: rawBuyer.avatar,
+              isVerified: rawBuyer.isVerified,
+              phone: isPaid ? rawBuyer.phone : undefined,
+              hostel: isPaid ? rawBuyer.hostel : undefined,
+            }
+          : null,
+      };
+    });
   }
 
   async findAll(): Promise<Transaction[]> {

@@ -28,8 +28,8 @@ export class OffersController {
   updateOfferStatus(
     @Param('id') id: string,
     @Request() req,
-    @Body('status') status: OfferStatus
+    @Body() body: { status: OfferStatus; receiverSwapDetails?: string; receiverHandoverNotes?: string }
   ) {
-    return this.offersService.updateOfferStatus(id, req.user.userId, status);
+    return this.offersService.updateOfferStatus(id, req.user.userId, body.status, body);
   }
 }

@@ -12,7 +12,7 @@ export class EscrowController {
 
   @Post('initiate')
   @ApiOperation({ summary: 'Initiate an escrow transaction' })
-  async initiate(@Body() body: { sellerId: string; itemId: string; amount: number, deliveryMethod?: string, deliveryAddress?: string, paymentReference?: string, deliveryFee?: number }, @Req() req) {
+  async initiate(@Body() body: { sellerId: string; itemId: string; amount: number, deliveryMethod?: string, deliveryAddress?: string, paymentReference?: string, deliveryFee?: number, batchId?: string, moverId?: string, moverScheduleSlot?: string }, @Req() req) {
     return this.escrowService.initiate({ ...body, buyerId: req.user.userId });
   }
 

@@ -10,6 +10,8 @@ export type NotificationType =
   | 'escrow_released'
   | 'item_sold'
   | 'offer_received'
+  | 'swap_accepted'
+  | 'swap_confirmed'
   | 'declutter_listed';
 
 @Schema({ timestamps: true, collection: 'notifications' })
