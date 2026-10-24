@@ -100,8 +100,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call-offer')
-  handleCallOffer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+  async handleCallOffer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+    const userId = socket.data.userId;
     socket.to(data.chatId).emit('call-offer', data);
+
+    try {
+      const chat = await this.chatService.getChatById(data.chatId);
+      if (chat && chat.participants) {
+        chat.participants.forEach((participant) => {
+          const pId = participant.toString();
+          if (pId !== userId) {
+            this.server.to(pId).emit('incoming-call', {
+              ...data,
+              callerId: userId,
+            });
+          }
+        });
+      }
+    } catch (err) {}
   }
 
   @SubscribeMessage('call-answer')
@@ -115,8 +131,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call-end')
-  handleCallEnd(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+  async handleCallEnd(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+    const userId = socket.data.userId;
     socket.to(data.chatId).emit('call-end', data);
+
+    try {
+      const chat = await this.chatService.getChatById(data.chatId);
+      if (chat && chat.participants) {
+        chat.participants.forEach((participant) => {
+          const pId = participant.toString();
+          if (pId !== userId) {
+            this.server.to(pId).emit('call-end', data);
+          }
+        });
+      }
+    } catch (err) {}
   }
 
   @SubscribeMessage('typing')
