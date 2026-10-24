@@ -612,40 +612,280 @@ export class EscrowService {
     return tx.save();
   }
 
+  async initiateNegotiation(dto: {
+    sellerId: string;
+    buyerId: string;
+    itemId: string;
+    deliveryAddress: string;
+    proposedDeliveryFee?: number;
+    notes?: string;
+    batchId?: string;
+  }) {
+    if (!dto.itemId) throw new BadRequestException('itemId is required');
+    if (!dto.sellerId) throw new BadRequestException('sellerId is required');
+    if (dto.buyerId === dto.sellerId) throw new BadRequestException('You cannot buy your own item');
+    if (!dto.deliveryAddress?.trim()) throw new BadRequestException('Delivery address is required for custom errand');
+
+    const item = await this.itemModel.findById(dto.itemId);
+    if (!item) throw new NotFoundException('Item not found');
+    if (item.status === ItemStatus.SOLD) throw new BadRequestException('This item has already been sold');
+
+    // Atomic compare-and-swap lock to reserve item while negotiating
+    const lockedItem = await this.itemModel.findOneAndUpdate(
+      { _id: dto.itemId, status: ItemStatus.ACTIVE },
+      { $set: { status: ItemStatus.PENDING } },
+      { new: true },
+    );
+    if (!lockedItem && item.status !== ItemStatus.PENDING) {
+      throw new BadRequestException('This item was just reserved or purchased by another student. Please refresh.');
+    }
+
+    if (dto.batchId) {
+      await this.itemModel.updateMany(
+        { batchId: dto.batchId, status: ItemStatus.ACTIVE },
+        { $set: { status: ItemStatus.PENDING } },
+      );
+    }
+
+    const configuredBaseFee = await this.settingsService.getSetting('base_errander_fee');
+    const proposedFee = Math.max(300, Number(dto.proposedDeliveryFee) || Number(configuredBaseFee) || 500);
+
+    const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
+    const escrowFeePerc = (escrowFeePercVal !== null && escrowFeePercVal !== undefined && Number(escrowFeePercVal) > 0)
+      ? Number(escrowFeePercVal)
+      : 2.5;
+
+    const itemPrice = item.price || 0;
+    const baseTotal = itemPrice + proposedFee;
+    const escrowFee = itemPrice > 0 ? Math.max(100, Math.round((baseTotal * escrowFeePerc) / 100)) : 0;
+    const totalAmount = itemPrice + proposedFee + escrowFee;
+
+    const tx = new this.txModel({
+      buyerId: dto.buyerId,
+      sellerId: dto.sellerId,
+      itemId: dto.itemId,
+      batchId: dto.batchId,
+      amount: totalAmount,
+      itemPrice,
+      deliveryFee: proposedFee,
+      proposedDeliveryFee: proposedFee,
+      escrowFee,
+      deliveryMethod: 'errander',
+      deliveryAddress: dto.deliveryAddress,
+      notes: dto.notes,
+      status: TransactionStatus.PENDING_NEGOTIATION,
+    });
+    const savedTx = await tx.save();
+
+    // Trigger aggressive in-app notifications
+    void (async () => {
+      try {
+        const [seller, buyer] = await Promise.all([
+          this.userModel.findById(dto.sellerId).lean().exec(),
+          this.userModel.findById(dto.buyerId).lean().exec(),
+        ]);
+        const buyerName = buyer ? `${buyer.firstName || ''} ${buyer.lastName || ''}`.trim() || 'A student' : 'A student';
+
+        await this.notificationsService.create({
+          userId: dto.sellerId,
+          actorId: dto.buyerId,
+          title: 'Custom Errand Negotiation 🚀',
+          message: `${buyerName} requested delivery negotiation for "${item.title}". Item is reserved while delivery is negotiated.`,
+          type: 'trade_requested' as any,
+          link: '/escrow',
+          metadata: { transactionId: savedTx._id.toString(), itemId: item._id.toString() },
+        });
+      } catch (err) {
+        this.logger.error(`Failed to dispatch negotiation notifications: ${err?.message || err}`);
+      }
+    })();
+
+    // Hand the delivery request to the Erranders logistics provider / Errand Ninja web app
+    try {
+      const seller = await this.usersService.findById(dto.sellerId);
+      const buyer = await this.usersService.findById(dto.buyerId);
+      await this.logisticsService.dispatchRiderForBarter(
+        seller?.hostel || item.location || '',
+        dto.deliveryAddress || buyer?.hostel || '',
+        item.title,
+        {
+          transactionId: savedTx._id.toString(),
+          itemId: item._id.toString(),
+          sellerId: dto.sellerId,
+          buyerId: dto.buyerId,
+          fee: proposedFee,
+          notes: dto.notes,
+        },
+        dto.buyerId,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `Custom errand dispatch for negotiation ${savedTx._id} provider log: ${err?.message || err}`,
+      );
+    }
+
+    return savedTx;
+  }
+
+  async confirmPayment(txId: string, buyerId: string, paymentReference: string, negotiatedFee?: number) {
+    const tx = await this.txModel.findById(txId);
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can confirm payment');
+
+    const finalDeliveryFee = negotiatedFee !== undefined && negotiatedFee !== null && !isNaN(Number(negotiatedFee))
+      ? Number(negotiatedFee)
+      : (tx.deliveryFee || 0);
+
+    const itemPrice = tx.itemPrice || 0;
+    const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
+    const escrowFeePerc = (escrowFeePercVal !== null && escrowFeePercVal !== undefined && Number(escrowFeePercVal) > 0)
+      ? Number(escrowFeePercVal)
+      : 2.5;
+
+    const baseTotal = itemPrice + finalDeliveryFee;
+    const escrowFee = itemPrice > 0 ? Math.max(100, Math.round((baseTotal * escrowFeePerc) / 100)) : 0;
+    const totalAmount = itemPrice + finalDeliveryFee + escrowFee;
+
+    tx.paymentReference = paymentReference;
+    tx.deliveryFee = finalDeliveryFee;
+    tx.proposedDeliveryFee = 0;
+    tx.escrowFee = escrowFee;
+    tx.amount = totalAmount;
+    tx.status = TransactionStatus.HELD_IN_ESCROW;
+
+    const savedTx = await tx.save();
+
+    // Ensure item status is PENDING (held in escrow)
+    await this.itemModel.findByIdAndUpdate(tx.itemId, { $set: { status: ItemStatus.PENDING } });
+
+    // Notify seller
+    void (async () => {
+      try {
+        const [seller, buyer, item] = await Promise.all([
+          this.userModel.findById(tx.sellerId).lean().exec(),
+          this.userModel.findById(tx.buyerId).lean().exec(),
+          this.itemModel.findById(tx.itemId).lean().exec(),
+        ]);
+        const buyerName = buyer ? `${buyer.firstName || ''} ${buyer.lastName || ''}`.trim() || 'A student' : 'A student';
+        const itemTitle = item?.title || 'Declutter Item';
+
+        await this.notificationsService.create({
+          userId: tx.sellerId,
+          actorId: tx.buyerId,
+          title: 'Escrow Payment Confirmed! 💰',
+          message: `${buyerName} completed Paystack payment of ₦${savedTx.amount.toLocaleString()} for "${itemTitle}" (including negotiated Errand Ninja delivery).`,
+          type: 'trade_requested' as any,
+          link: '/escrow',
+          metadata: { transactionId: savedTx._id.toString(), itemId: tx.itemId },
+        });
+      } catch (err) {
+        this.logger.error(`Failed to send confirmPayment notification: ${err?.message || err}`);
+      }
+    })();
+
+    return savedTx;
+  }
+
+  async findTransactionById(txId: string, userId: string): Promise<any> {
+    const tx = await this.txModel.findById(txId).lean().exec();
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.buyerId !== userId && tx.sellerId !== userId) {
+      throw new BadRequestException('You do not have permission to view this transaction');
+    }
+
+    const [seller, buyer, item] = await Promise.all([
+      this.userModel.findById(tx.sellerId).select('firstName lastName whatsappNumber email avatar hostel isVerified').lean().exec(),
+      this.userModel.findById(tx.buyerId).select('firstName lastName whatsappNumber email avatar hostel isVerified').lean().exec(),
+      this.itemModel.findById(tx.itemId).select('title images price location status').lean().exec(),
+    ]);
+
+    const isPaid = tx.status === TransactionStatus.HELD_IN_ESCROW || tx.status === TransactionStatus.RELEASED;
+
+    return {
+      ...tx,
+      item: item
+        ? {
+            ...item,
+            location: isPaid ? item.location : '🔒 Campus Location (Revealed after payment)',
+          }
+        : null,
+      seller: seller
+        ? {
+            firstName: seller.firstName,
+            lastName: seller.lastName,
+            avatar: seller.avatar,
+            isVerified: seller.isVerified,
+            phone: isPaid ? ((seller as any).whatsappNumber || (seller as any).phone) : undefined,
+            hostel: isPaid ? seller.hostel : undefined,
+          }
+        : null,
+      buyer: buyer
+        ? {
+            firstName: buyer.firstName,
+            lastName: buyer.lastName,
+            avatar: buyer.avatar,
+            isVerified: buyer.isVerified,
+            phone: isPaid ? ((buyer as any).whatsappNumber || (buyer as any).phone) : undefined,
+            hostel: isPaid ? buyer.hostel : undefined,
+          }
+        : null,
+    };
+  }
+
   async acceptNegotiation(txId: string, buyerId: string) {
     const tx = await this.txModel.findById(txId);
     if (!tx) throw new NotFoundException('Transaction not found');
     if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can accept negotiations');
-    if (!tx.erranderBidId) throw new BadRequestException('No negotiation exists for this transaction');
+    if (!tx.erranderBidId && !tx.proposedDeliveryFee) throw new BadRequestException('No negotiation exists for this transaction');
 
-    const { apiUrl, apiKey } = this.requireProviderConfig();
-
-    try {
-      // Call Erranders backend to accept the bid
-      const response = await fetch(`${apiUrl}/orders/webhook/negotiation/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          orderId: tx.erranderOrderId,
-          bidId: tx.erranderBidId
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to accept negotiation on Erranders backend');
+    if (tx.erranderBidId && tx.erranderOrderId) {
+      try {
+        const { apiUrl, apiKey } = this.requireProviderConfig();
+        const response = await fetch(`${apiUrl}/orders/webhook/negotiation/accept`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+          },
+          body: JSON.stringify({
+            orderId: tx.erranderOrderId,
+            bidId: tx.erranderBidId
+          })
+        });
+        
+        if (!response.ok) {
+          this.logger.warn('Failed to accept negotiation on Erranders backend');
+        }
+      } catch (err) {
+        this.logger.warn(`Could not sync acceptance to errander provider webhook: ${err?.message || err}`);
       }
-
-      tx.deliveryFee = tx.proposedDeliveryFee;
-      tx.proposedDeliveryFee = 0; // clear it
-      tx.erranderBidId = null; // clear it
-      return tx.save();
-    } catch (err) {
-      console.error(err);
-      throw new BadRequestException('Could not accept negotiation');
     }
+
+    const agreedFee = tx.proposedDeliveryFee || tx.deliveryFee || 0;
+    tx.deliveryFee = agreedFee;
+    tx.proposedDeliveryFee = 0; // cleared because concluded
+    tx.erranderBidId = null;
+
+    // Recalculate amount with newly concluded negotiated fee
+    const itemPrice = tx.itemPrice || 0;
+    const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
+    const escrowFeePerc = (escrowFeePercVal !== null && escrowFeePercVal !== undefined && Number(escrowFeePercVal) > 0)
+      ? Number(escrowFeePercVal)
+      : 2.5;
+
+    const baseTotal = itemPrice + agreedFee;
+    const escrowFee = itemPrice > 0 ? Math.max(100, Math.round((baseTotal * escrowFeePerc) / 100)) : 0;
+    tx.escrowFee = escrowFee;
+    tx.amount = itemPrice + agreedFee + escrowFee;
+
+    const saved = await tx.save();
+
+    return {
+      ...saved.toObject(),
+      concludedFee: agreedFee,
+      requiresPayment: !saved.paymentReference || saved.status === TransactionStatus.PENDING_NEGOTIATION,
+      totalAmountToPay: saved.amount,
+    };
   }
 
   async counterNegotiation(txId: string, buyerId: string, amount: number) {

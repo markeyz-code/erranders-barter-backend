@@ -12,8 +12,32 @@ export class EscrowController {
 
   @Post('initiate')
   @ApiOperation({ summary: 'Initiate an escrow transaction' })
-  async initiate(@Body() body: { sellerId: string; itemId: string; amount: number, deliveryMethod?: string, deliveryAddress?: string, paymentReference?: string, deliveryFee?: number, batchId?: string, moverId?: string, moverScheduleSlot?: string }, @Req() req) {
+  async initiate(@Body() body: { sellerId: string; itemId: string; amount: number, deliveryMethod?: string, deliveryAddress?: string, paymentReference?: string, deliveryFee?: number, batchId?: string, moverId?: string, moverScheduleSlot?: string, notes?: string }, @Req() req) {
     return this.escrowService.initiate({ ...body, buyerId: req.user.userId });
+  }
+
+  @Post('initiate-negotiation')
+  @ApiOperation({ summary: 'Initiate custom errand delivery negotiation with Errand Ninja web app before payment' })
+  async initiateNegotiation(@Body() body: { sellerId: string; itemId: string; deliveryAddress: string; proposedDeliveryFee?: number; notes?: string; batchId?: string }, @Req() req) {
+    return this.escrowService.initiateNegotiation({ ...body, buyerId: req.user.userId });
+  }
+
+  @Patch(':id/confirm-payment')
+  @ApiOperation({ summary: 'Confirm Paystack payment after negotiation concluded' })
+  async confirmPayment(@Param('id') id: string, @Body() body: { paymentReference: string; negotiatedFee?: number }, @Req() req) {
+    return this.escrowService.confirmPayment(id, req.user.userId, body.paymentReference, body.negotiatedFee);
+  }
+
+  @Get('my-transactions')
+  @ApiOperation({ summary: 'List all transactions for the current user' })
+  async myTransactions(@Req() req) {
+    return this.escrowService.findByUser(req.user.userId);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get single transaction details' })
+  async getTransaction(@Param('id') id: string, @Req() req): Promise<any> {
+    return this.escrowService.findTransactionById(id, req.user.userId);
   }
 
   @Patch(':id/release')
@@ -26,12 +50,6 @@ export class EscrowController {
   @ApiOperation({ summary: 'Raise a dispute on a transaction' })
   async dispute(@Param('id') id: string, @Req() req) {
     return this.escrowService.dispute(id, req.user.userId);
-  }
-
-  @Get('my-transactions')
-  @ApiOperation({ summary: 'List all transactions for the current user' })
-  async myTransactions(@Req() req) {
-    return this.escrowService.findByUser(req.user.userId);
   }
 
   @Get('admin/all')

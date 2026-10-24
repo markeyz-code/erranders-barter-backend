@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export enum TransactionStatus {
+  PENDING_NEGOTIATION = 'pending_negotiation',
   HELD_IN_ESCROW = 'held_in_escrow',
   RELEASED = 'released',
   DISPUTED = 'disputed',
@@ -14,12 +15,13 @@ export class Transaction extends Document {
   @Prop({ required: true }) sellerId: string;
   @Prop({ required: true }) itemId: string;
   @Prop() batchId?: string;
-  @Prop({ required: true }) amount: number; // total amount paid
+  @Prop({ required: true }) amount: number; // total amount paid or agreed
   @Prop({ default: 0 }) itemPrice: number;
   @Prop({ default: 0 }) deliveryFee: number;
   @Prop({ default: 0 }) escrowFee: number;
   @Prop() deliveryMethod: string;
   @Prop() deliveryAddress: string;
+  @Prop() notes: string;
   @Prop() erranderId: string;
   @Prop() erranderOrderId: string;
   @Prop() erranderBidId: string;
