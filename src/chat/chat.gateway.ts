@@ -33,8 +33,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify(token.replace('Bearer ', ''), {
         secret: this.configService.get<string>('JWT_SECRET') || 'dev-secret-key'
       });
-      socket.data.userId = payload.sub;
-      socket.join(payload.sub); // Join a personal room for direct user notifications
+      const userIdStr = String(payload.sub);
+      socket.data.userId = userIdStr;
+      socket.join(userIdStr); // Join a personal room for direct user notifications
     } catch (err) {
       socket.disconnect();
     }
@@ -101,49 +102,66 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('call-offer')
   async handleCallOffer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
-    const userId = socket.data.userId;
-    socket.to(data.chatId).emit('call-offer', data);
+    const userId = socket.data?.userId ? String(socket.data.userId) : '';
+    const chatId = String(data?.chatId || '');
+    if (chatId) {
+      socket.to(chatId).emit('call-offer', { ...data, chatId, callerId: userId });
+    }
 
     try {
-      const chat = await this.chatService.getChatById(data.chatId);
-      if (chat && chat.participants) {
-        chat.participants.forEach((participant) => {
-          const pId = participant.toString();
-          if (pId !== userId) {
-            this.server.to(pId).emit('incoming-call', {
-              ...data,
-              callerId: userId,
-            });
-          }
-        });
+      if (chatId) {
+        const chat = await this.chatService.getChatById(chatId);
+        if (chat && chat.participants) {
+          chat.participants.forEach((participant: any) => {
+            const pId = String(participant?._id || participant);
+            if (pId !== userId) {
+              this.server.to(pId).emit('incoming-call', {
+                ...data,
+                chatId,
+                callerId: userId,
+              });
+            }
+          });
+        }
       }
     } catch (err) {}
   }
 
   @SubscribeMessage('call-answer')
   handleCallAnswer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
-    socket.to(data.chatId).emit('call-answer', data);
+    const chatId = String(data?.chatId || '');
+    if (chatId) {
+      socket.to(chatId).emit('call-answer', data);
+    }
   }
 
   @SubscribeMessage('call-ice-candidate')
   handleCallIceCandidate(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
-    socket.to(data.chatId).emit('call-ice-candidate', data);
+    const chatId = String(data?.chatId || '');
+    if (chatId) {
+      socket.to(chatId).emit('call-ice-candidate', data);
+    }
   }
 
   @SubscribeMessage('call-end')
   async handleCallEnd(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
-    const userId = socket.data.userId;
-    socket.to(data.chatId).emit('call-end', data);
+    const chatId = String(data?.chatId || '');
 
+    // 1. Broadcast call-end to the chat room
+    if (chatId) {
+      this.server.to(chatId).emit('call-end', { chatId });
+    }
+
+    // 2. Broadcast call-end to all participants' individual user rooms so all devices & tabs silence immediately
     try {
-      const chat = await this.chatService.getChatById(data.chatId);
-      if (chat && chat.participants) {
-        chat.participants.forEach((participant) => {
-          const pId = participant.toString();
-          if (pId !== userId) {
-            this.server.to(pId).emit('call-end', data);
-          }
-        });
+      if (chatId) {
+        const chat = await this.chatService.getChatById(chatId);
+        if (chat && chat.participants) {
+          chat.participants.forEach((participant: any) => {
+            const pId = String(participant?._id || participant);
+            this.server.to(pId).emit('call-end', { chatId });
+          });
+        }
       }
     } catch (err) {}
   }
