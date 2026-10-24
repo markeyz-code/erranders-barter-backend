@@ -14,7 +14,7 @@ export class Message {
   @Prop({ required: true })
   content: string;
 
-  @Prop({ enum: ['text', 'image', 'voice'], default: 'text' })
+  @Prop({ enum: ['text', 'image', 'voice', 'video', 'file'], default: 'text' })
   type: string;
 
   @Prop({ type: String })

@@ -118,4 +118,54 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleCallEnd(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
     socket.to(data.chatId).emit('call-end', data);
   }
+
+  @SubscribeMessage('typing')
+  handleTyping(
+    @MessageBody() data: { chatId: string; isTyping?: boolean },
+    @ConnectedSocket() socket: Socket
+  ) {
+    const userId = socket.data.userId;
+    const isTyping = data?.isTyping !== false;
+    socket.to(data.chatId).emit('user-typing', {
+      chatId: data.chatId,
+      userId,
+      isTyping
+    });
+    socket.to(data.chatId).emit(isTyping ? 'typing' : 'stopTyping', {
+      chatId: data.chatId,
+      userId
+    });
+  }
+
+  @SubscribeMessage('stopTyping')
+  handleStopTyping(
+    @MessageBody() data: { chatId: string },
+    @ConnectedSocket() socket: Socket
+  ) {
+    const userId = socket.data.userId;
+    socket.to(data.chatId).emit('user-typing', {
+      chatId: data.chatId,
+      userId,
+      isTyping: false
+    });
+    socket.to(data.chatId).emit('stopTyping', {
+      chatId: data.chatId,
+      userId
+    });
+  }
+
+  @SubscribeMessage('media-uploading')
+  handleMediaUploading(
+    @MessageBody() data: { chatId: string; isUploading: boolean; assetType?: string; filename?: string },
+    @ConnectedSocket() socket: Socket
+  ) {
+    const userId = socket.data.userId;
+    socket.to(data.chatId).emit('media-uploading', {
+      chatId: data.chatId,
+      userId,
+      isUploading: data.isUploading,
+      assetType: data.assetType || 'file',
+      filename: data.filename
+    });
+  }
 }
