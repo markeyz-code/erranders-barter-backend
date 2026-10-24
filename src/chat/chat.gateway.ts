@@ -128,18 +128,42 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call-answer')
-  handleCallAnswer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+  async handleCallAnswer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+    const userId = socket.data?.userId ? String(socket.data.userId) : '';
     const chatId = String(data?.chatId || '');
     if (chatId) {
       socket.to(chatId).emit('call-answer', data);
+      try {
+        const chat = await this.chatService.getChatById(chatId);
+        if (chat && chat.participants) {
+          chat.participants.forEach((participant: any) => {
+            const pId = String(participant?._id || participant);
+            if (pId !== userId) {
+              this.server.to(pId).emit('call-answer', data);
+            }
+          });
+        }
+      } catch (err) {}
     }
   }
 
   @SubscribeMessage('call-ice-candidate')
-  handleCallIceCandidate(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+  async handleCallIceCandidate(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
+    const userId = socket.data?.userId ? String(socket.data.userId) : '';
     const chatId = String(data?.chatId || '');
     if (chatId) {
       socket.to(chatId).emit('call-ice-candidate', data);
+      try {
+        const chat = await this.chatService.getChatById(chatId);
+        if (chat && chat.participants) {
+          chat.participants.forEach((participant: any) => {
+            const pId = String(participant?._id || participant);
+            if (pId !== userId) {
+              this.server.to(pId).emit('call-ice-candidate', data);
+            }
+          });
+        }
+      } catch (err) {}
     }
   }
 
