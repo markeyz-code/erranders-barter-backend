@@ -463,7 +463,9 @@ export class ItemsService {
     if (query.declutter === 'true' || query.declutter === true) filter.tags = 'declutter';
     if (query.search || query.q) filter.$text = { $search: query.search || query.q };
     if (query.budget) filter.price = { $lte: Number(query.budget) };
-    if (query.sellerId) filter.sellerId = query.sellerId;
+    if (query.sellerId && query.sellerId !== 'undefined' && Types.ObjectId.isValid(query.sellerId)) {
+      filter.sellerId = query.sellerId;
+    }
 
     let dbQuery = this.itemModel.find(filter).populate('sellerId', 'firstName lastName hostel level rating isVerified avatar');
     
