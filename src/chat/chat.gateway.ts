@@ -19,6 +19,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
+  private activeCalls = new Map<string, { callerId: string; calleeId?: string; chatId: string; candidates: Array<{ candidate: any; fromUserId: string }> }>();
+
   constructor(
     private readonly chatService: ChatService,
     private readonly jwtService: JwtService,
@@ -104,25 +106,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleCallOffer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
     const userId = socket.data?.userId ? String(socket.data.userId) : '';
     const chatId = String(data?.chatId || '');
-    if (chatId) {
-      socket.to(chatId).emit('call-offer', { ...data, chatId, callerId: userId });
-    }
+    if (!chatId) return;
+
+    // Track active call session and prepare candidate buffer
+    this.activeCalls.set(chatId, {
+      callerId: userId,
+      chatId,
+      candidates: []
+    });
+
+    socket.to(chatId).emit('call-offer', { ...data, chatId, callerId: userId });
 
     try {
-      if (chatId) {
-        const chat = await this.chatService.getChatById(chatId);
-        if (chat && chat.participants) {
-          chat.participants.forEach((participant: any) => {
-            const pId = String(participant?._id || participant);
-            if (pId !== userId) {
-              this.server.to(pId).emit('incoming-call', {
-                ...data,
-                chatId,
-                callerId: userId,
-              });
-            }
-          });
-        }
+      const chat = await this.chatService.getChatById(chatId);
+      if (chat && chat.participants) {
+        chat.participants.forEach((participant: any) => {
+          const pId = String(participant?._id || participant);
+          if (pId !== userId) {
+            this.server.to(pId).emit('incoming-call', {
+              ...data,
+              chatId,
+              callerId: userId,
+            });
+          }
+        });
       }
     } catch (err) {}
   }
@@ -131,52 +138,101 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleCallAnswer(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
     const userId = socket.data?.userId ? String(socket.data.userId) : '';
     const chatId = String(data?.chatId || '');
-    if (chatId) {
-      socket.to(chatId).emit('call-answer', data);
-      try {
-        const chat = await this.chatService.getChatById(chatId);
-        if (chat && chat.participants) {
-          chat.participants.forEach((participant: any) => {
-            const pId = String(participant?._id || participant);
-            if (pId !== userId) {
-              this.server.to(pId).emit('call-answer', data);
-            }
-          });
-        }
-      } catch (err) {}
+    if (!chatId) return;
+
+    const call = this.activeCalls.get(chatId);
+    if (call) {
+      call.calleeId = userId;
     }
+
+    // 1. Direct delivery to the caller's personal socket room
+    if (call?.callerId) {
+      this.server.to(call.callerId).emit('call-answer', { ...data, chatId });
+    }
+
+    // 2. Broadcast to chat room
+    socket.to(chatId).emit('call-answer', { ...data, chatId });
+
+    // 3. Flush any ICE candidates buffered during ringing to the callee
+    if (call && call.candidates.length > 0) {
+      call.candidates.forEach((item) => {
+        if (item.fromUserId !== userId) {
+          socket.emit('call-ice-candidate', { chatId, candidate: item.candidate });
+        } else if (call.callerId) {
+          this.server.to(call.callerId).emit('call-ice-candidate', { chatId, candidate: item.candidate });
+        }
+      });
+    }
+
+    // 4. Fallback delivery to all other participants
+    try {
+      const chat = await this.chatService.getChatById(chatId);
+      if (chat && chat.participants) {
+        chat.participants.forEach((participant: any) => {
+          const pId = String(participant?._id || participant);
+          if (pId !== userId && (!call || pId !== call.callerId)) {
+            this.server.to(pId).emit('call-answer', { ...data, chatId });
+          }
+        });
+      }
+    } catch (err) {}
   }
 
   @SubscribeMessage('call-ice-candidate')
   async handleCallIceCandidate(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
     const userId = socket.data?.userId ? String(socket.data.userId) : '';
     const chatId = String(data?.chatId || '');
-    if (chatId) {
-      socket.to(chatId).emit('call-ice-candidate', data);
-      try {
-        const chat = await this.chatService.getChatById(chatId);
-        if (chat && chat.participants) {
-          chat.participants.forEach((participant: any) => {
-            const pId = String(participant?._id || participant);
-            if (pId !== userId) {
-              this.server.to(pId).emit('call-ice-candidate', data);
-            }
-          });
-        }
-      } catch (err) {}
+    if (!chatId) return;
+
+    // Buffer candidate in active call
+    const call = this.activeCalls.get(chatId);
+    if (call && data?.candidate) {
+      call.candidates.push({ candidate: data.candidate, fromUserId: userId });
     }
+
+    // Direct routing to the counterparty if known
+    if (call) {
+      const counterpartyId = userId === call.callerId ? call.calleeId : call.callerId;
+      if (counterpartyId) {
+        this.server.to(counterpartyId).emit('call-ice-candidate', data);
+      }
+    }
+
+    socket.to(chatId).emit('call-ice-candidate', data);
+
+    try {
+      const chat = await this.chatService.getChatById(chatId);
+      if (chat && chat.participants) {
+        chat.participants.forEach((participant: any) => {
+          const pId = String(participant?._id || participant);
+          if (pId !== userId) {
+            this.server.to(pId).emit('call-ice-candidate', data);
+          }
+        });
+      }
+    } catch (err) {}
   }
 
   @SubscribeMessage('call-end')
   async handleCallEnd(@MessageBody() data: any, @ConnectedSocket() socket: Socket) {
     const chatId = String(data?.chatId || '');
 
-    // 1. Broadcast call-end to the chat room
+    // Cleanup active call state
+    const call = this.activeCalls.get(chatId);
+    this.activeCalls.delete(chatId);
+
+    // 1. Direct delivery to known participants
+    if (call) {
+      if (call.callerId) this.server.to(call.callerId).emit('call-end', { chatId });
+      if (call.calleeId) this.server.to(call.calleeId).emit('call-end', { chatId });
+    }
+
+    // 2. Broadcast call-end to the chat room
     if (chatId) {
       this.server.to(chatId).emit('call-end', { chatId });
     }
 
-    // 2. Broadcast call-end to all participants' individual user rooms so all devices & tabs silence immediately
+    // 3. Broadcast call-end to all participants' individual user rooms so all devices & tabs silence immediately
     try {
       if (chatId) {
         const chat = await this.chatService.getChatById(chatId);
