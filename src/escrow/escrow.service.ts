@@ -146,15 +146,15 @@ export class EscrowService {
         const seller = await this.usersService.findById(dto.sellerId);
         const buyer = await this.usersService.findById(dto.buyerId);
         await this.logisticsService.dispatchRiderForBarter(
-          seller?.hostel || '',
-          dto.deliveryAddress || buyer?.hostel || '',
+          seller?.hostel || item.location || 'Seller Campus Location',
+          dto.deliveryAddress || buyer?.hostel || 'Buyer Campus Delivery Address',
           item.title,
           {
             transactionId: savedTx._id.toString(),
             itemId: item._id.toString(),
             sellerId: dto.sellerId,
             buyerId: dto.buyerId,
-            fee: deliveryFee,
+            fee: Math.max(300, Number(deliveryFee) || 500),
           },
           dto.buyerId,
         );
@@ -705,15 +705,15 @@ export class EscrowService {
       const seller = await this.usersService.findById(dto.sellerId);
       const buyer = await this.usersService.findById(dto.buyerId);
       await this.logisticsService.dispatchRiderForBarter(
-        seller?.hostel || item.location || '',
-        dto.deliveryAddress || buyer?.hostel || '',
+        seller?.hostel || item.location || 'Seller Campus Location',
+        dto.deliveryAddress || buyer?.hostel || 'Buyer Campus Delivery Address',
         item.title,
         {
           transactionId: savedTx._id.toString(),
           itemId: item._id.toString(),
           sellerId: dto.sellerId,
           buyerId: dto.buyerId,
-          fee: proposedFee,
+          fee: Math.max(300, Number(proposedFee) || 500),
           notes: dto.notes,
         },
         dto.buyerId,

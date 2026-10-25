@@ -115,7 +115,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       candidates: []
     });
 
-    socket.to(chatId).emit('call-offer', { ...data, chatId, callerId: userId });
+    const payload = { ...data, chatId, callerId: userId };
+    socket.to(chatId).emit('call-offer', payload);
 
     try {
       const chat = await this.chatService.getChatById(chatId);
@@ -123,11 +124,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         chat.participants.forEach((participant: any) => {
           const pId = String(participant?._id || participant);
           if (pId !== userId) {
-            this.server.to(pId).emit('incoming-call', {
-              ...data,
-              chatId,
-              callerId: userId,
-            });
+            this.server.to(pId).emit('incoming-call', payload);
+            this.server.to(pId).emit('call-offer', payload);
           }
         });
       }
