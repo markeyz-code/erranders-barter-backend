@@ -308,12 +308,25 @@ export class LogisticsService {
       throw error;
     }
 
+    // Resolve university from seller or buyer to provide campus context to Erranders
+    let university: string | undefined;
+    if (dispatch.sellerId) {
+      const seller = await this.userModel.findById(dispatch.sellerId).select('university').exec();
+      if (seller?.university) university = seller.university;
+    }
+    if (!university && dispatch.buyerId) {
+      const buyer = await this.userModel.findById(dispatch.buyerId).select('university').exec();
+      if (buyer?.university) university = buyer.university;
+    }
+
     const payloadBody = JSON.stringify({
       pickupLocation: dispatch.pickupLocation || 'Seller Campus Location',
       dropoffLocation: dispatch.dropoffLocation || 'Buyer Campus Delivery Address',
       fee: Math.max(300, Number(dispatch.fee) || 500),
       description: `Barter Delivery: ${dispatch.itemTitle || 'Barter Item'}`,
       barterTransactionId: dispatch.transactionId?.toString(),
+      university: university || undefined,
+      isBarter: true,
     });
 
     let response: Response;
