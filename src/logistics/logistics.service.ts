@@ -386,6 +386,12 @@ export class LogisticsService {
     dispatch.lastError = undefined;
     await dispatch.save();
 
+    if (dispatch.transactionId && dispatch.providerOrderId) {
+      await this.txModel.findByIdAndUpdate(dispatch.transactionId, {
+        erranderOrderId: dispatch.providerOrderId,
+      }).exec();
+    }
+
     this.logger.log(`Dispatched barter delivery ${dispatch._id} to Erranders (order ${dispatch.providerOrderId || 'unknown'})`);
     return dispatch;
   }

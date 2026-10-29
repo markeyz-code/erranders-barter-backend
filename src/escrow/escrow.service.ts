@@ -592,14 +592,43 @@ export class EscrowService {
   }
 
   async handleNegotiationWebhook(payload: { barterTransactionId: string; orderId: string; bidId: string; proposedFee: number }) {
-    const tx = await this.txModel.findById(payload.barterTransactionId);
-    if (!tx) throw new NotFoundException('Transaction not found');
+    this.logger.log(`handleNegotiationWebhook called with payload: ${JSON.stringify(payload)}`);
+    let tx: any = null;
+    if (payload.barterTransactionId && Types.ObjectId.isValid(payload.barterTransactionId)) {
+      tx = await this.txModel.findById(payload.barterTransactionId);
+    }
+    if (!tx && payload.orderId) {
+      tx = await this.txModel.findOne({ erranderOrderId: payload.orderId });
+    }
+    if (!tx) {
+      this.logger.error(`handleNegotiationWebhook: Transaction not found for txId=${payload.barterTransactionId} orderId=${payload.orderId}`);
+      throw new NotFoundException('Transaction not found');
+    }
     
-    tx.erranderOrderId = payload.orderId;
-    tx.erranderBidId = payload.bidId;
-    tx.proposedDeliveryFee = payload.proposedFee;
+    tx.erranderOrderId = payload.orderId || tx.erranderOrderId;
+    tx.erranderBidId = payload.bidId || tx.erranderBidId;
+    tx.proposedDeliveryFee = Number(payload.proposedFee) || 0;
     
-    return tx.save();
+    const saved = await tx.save();
+
+    // Trigger aggressive in-app notification to the buyer
+    void (async () => {
+      try {
+        await this.notificationsService.create({
+          userId: tx.buyerId.toString(),
+          actorId: tx.sellerId ? tx.sellerId.toString() : tx.buyerId.toString(),
+          title: 'Errand Ninja Bid Received! 🛵',
+          message: `A rider offered ₦${Number(payload.proposedFee).toLocaleString()} for your barter delivery. Review and conclude your order!`,
+          type: 'trade_negotiation' as any,
+          link: '/escrow',
+          metadata: { transactionId: tx._id.toString(), orderId: payload.orderId, proposedFee: payload.proposedFee },
+        });
+      } catch (err) {
+        this.logger.error(`Failed to send notification for rider bid: ${err?.message || err}`);
+      }
+    })();
+
+    return saved;
   }
 
   async handleAcceptWebhook(payload: { barterTransactionId: string; orderId: string; bidId: string; finalFee: number }) {
@@ -715,6 +744,7 @@ export class EscrowService {
           buyerId: dto.buyerId,
           fee: Math.max(300, Number(proposedFee) || 500),
           notes: dto.notes,
+          priority: 'negotiating',
         },
         dto.buyerId,
       );
