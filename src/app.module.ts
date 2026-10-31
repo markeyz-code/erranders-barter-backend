@@ -28,7 +28,9 @@ import { AppController } from './app.controller';
   imports: [
     SupportModule,
     ConfigModule.forRoot({ isGlobal: true }),
-    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/barter-dev'),
+    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/barter-dev', {
+      serverSelectionTimeoutMS: 15000,
+    }),
     NotificationsModule,
     AuthModule,
     UsersModule,
