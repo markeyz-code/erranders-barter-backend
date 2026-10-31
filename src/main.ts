@@ -14,7 +14,13 @@ function diagLog(msg: string) {
   } catch {}
 }
 
-diagLog(`PROCESS_INIT | PORT=${process.env.PORT} | NODE_ENV=${process.env.NODE_ENV} | MONGO=${process.env.MONGODB_URI ? 'SET' : 'MISSING'}`);
+const railwayEnv = Object.keys(process.env)
+  .filter((k) => k.startsWith('RAILWAY') || k === 'PORT' || k === 'NODE_ENV')
+  .map((k) => `${k}=${process.env[k]}`)
+  .join(' | ');
+
+diagLog(`RAILWAY_ENV: ${railwayEnv}`);
+
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
