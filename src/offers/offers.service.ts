@@ -58,7 +58,10 @@ export class OffersService {
 
     // Dispatch notification to receiver
     try {
-      const proposer = await this.userModel.findById(proposerId);
+      const [proposer, receiver] = await Promise.all([
+        this.userModel.findById(proposerId),
+        this.userModel.findById(dto.receiverId),
+      ]);
       await this.notificationsService.create({
         userId: dto.receiverId,
         actorId: proposerId,
@@ -68,6 +71,22 @@ export class OffersService {
         link: '/dashboard/offers?tab=received',
         metadata: { offerId: saved._id.toString(), targetItemId: dto.targetItemId },
       });
+
+      const receiverPhone = (receiver as any)?.whatsappNumber || (receiver as any)?.phone;
+      if (receiverPhone) {
+        let offeredTitle: string | undefined;
+        if (dto.offeredItemId) {
+          const offeredItem = await this.itemModel.findById(dto.offeredItemId).select('title').lean().exec();
+          offeredTitle = offeredItem?.title;
+        }
+        await this.notificationsService.getWhatsAppService().notifyNewOffer(receiverPhone, {
+          receiverName: receiver?.firstName || 'Student',
+          proposerName: proposer?.firstName || 'A trader',
+          targetItemTitle: targetItem.title,
+          offeredItemTitle: offeredTitle,
+          cashTopUp: dto.cashTopUp,
+        });
+      }
     } catch (e) {
       // Non-blocking
     }

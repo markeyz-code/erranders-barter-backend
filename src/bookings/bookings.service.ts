@@ -213,6 +213,19 @@ export class BookingsService {
           );
         }
 
+        // WhatsApp for Provider via Evolution API
+        const providerPhone = (providerUser as any)?.whatsappNumber || (providerUser as any)?.phone;
+        if (providerPhone) {
+          await this.notificationsService.getWhatsAppService().notifyProviderBooking(providerPhone, {
+            providerName,
+            clientName: customerName,
+            serviceTitle: service.title,
+            bookingDate: dto.date,
+            timeSlot: `${slot.startTime} – ${slot.endTime}`,
+            amount: calculatedAmount,
+          });
+        }
+
         // In-app notification for Customer
         await this.notificationsService.create({
           userId: userId,
@@ -325,6 +338,18 @@ export class BookingsService {
             booking.endTime,
             update.meetingUrl,
           );
+        }
+
+        // WhatsApp for Customer via Evolution API
+        const customerPhone = (customerUser as any)?.whatsappNumber || (customerUser as any)?.phone;
+        if (customerPhone) {
+          await this.notificationsService.getWhatsAppService().notifyClientBookingConfirmed(customerPhone, {
+            clientName: customerName,
+            providerName,
+            serviceTitle: service.title,
+            bookingDate: booking.date,
+            timeSlot: `${booking.startTime} – ${booking.endTime}`,
+          });
         }
       } catch (err) {}
     })();

@@ -135,6 +135,29 @@ export class EscrowService {
             savedTx.amount,
           );
         }
+
+        // WhatsApp notification to Seller & Buyer via Evolution API
+        const sellerPhone = (seller as any)?.whatsappNumber || (seller as any)?.phone;
+        if (sellerPhone) {
+          await this.notificationsService.getWhatsAppService().notifySellerEscrowInitiated(sellerPhone, {
+            sellerName,
+            buyerName,
+            itemTitle: item.title,
+            amount: savedTx.amount,
+            txId: savedTx._id.toString(),
+          });
+        }
+
+        const buyerPhone = (buyer as any)?.whatsappNumber || (buyer as any)?.phone;
+        if (buyerPhone) {
+          await this.notificationsService.getWhatsAppService().notifyBuyerEscrowPayment(buyerPhone, {
+            buyerName,
+            sellerName,
+            itemTitle: item.title,
+            amount: savedTx.amount,
+            txId: savedTx._id.toString(),
+          });
+        }
       } catch (err) {
         this.logger.error(`Failed to dispatch escrow initiation notifications: ${err?.message || err}`);
       }
@@ -219,6 +242,17 @@ export class EscrowService {
             buyerName,
             sellerPayout,
           );
+        }
+
+        // WhatsApp notification to Seller via Evolution API
+        const sellerPhone = (seller as any)?.whatsappNumber || (seller as any)?.phone;
+        if (sellerPhone) {
+          await this.notificationsService.getWhatsAppService().notifySellerFundsReleased(sellerPhone, {
+            sellerName,
+            buyerName,
+            itemTitle,
+            payout: sellerPayout,
+          });
         }
       } catch (err) {
         this.logger.error(`Failed to dispatch escrow release notifications: ${err?.message || err}`);
@@ -808,6 +842,27 @@ export class EscrowService {
           link: '/escrow',
           metadata: { transactionId: savedTx._id.toString(), itemId: tx.itemId },
         });
+        // WhatsApp notification on confirmed payment
+        const sellerPhone = (seller as any)?.whatsappNumber || (seller as any)?.phone;
+        if (sellerPhone) {
+          await this.notificationsService.getWhatsAppService().notifySellerEscrowInitiated(sellerPhone, {
+            sellerName: (seller as any)?.firstName || 'Student',
+            buyerName,
+            itemTitle,
+            amount: savedTx.amount,
+            txId: savedTx._id.toString(),
+          });
+        }
+        const buyerPhone = (buyer as any)?.whatsappNumber || (buyer as any)?.phone;
+        if (buyerPhone) {
+          await this.notificationsService.getWhatsAppService().notifyBuyerEscrowPayment(buyerPhone, {
+            buyerName,
+            sellerName: (seller as any)?.firstName || 'Seller',
+            itemTitle,
+            amount: savedTx.amount,
+            txId: savedTx._id.toString(),
+          });
+        }
       } catch (err) {
         this.logger.error(`Failed to send confirmPayment notification: ${err?.message || err}`);
       }

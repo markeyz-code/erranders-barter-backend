@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Notification, NotificationType } from './schemas/notification.schema';
 import { EmailService } from './email.service';
+import { WhatsAppService } from './whatsapp.service';
 
 export interface CreateNotificationDto {
   userId: string | Types.ObjectId;
@@ -17,6 +18,10 @@ export interface CreateNotificationDto {
     subject: string;
     htmlContent: string;
   };
+  whatsappNotification?: {
+    phone: string;
+    text: string;
+  };
 }
 
 @Injectable()
@@ -26,6 +31,7 @@ export class NotificationsService {
   constructor(
     @InjectModel(Notification.name) private notificationModel: Model<Notification>,
     private readonly emailService: EmailService,
+    private readonly whatsAppService: WhatsAppService,
   ) {}
 
   async create(dto: CreateNotificationDto): Promise<Notification> {
@@ -50,6 +56,16 @@ export class NotificationsService {
         dto.emailNotification.htmlContent,
       ).catch((err) => {
         this.logger.error(`Failed to send notification email: ${err.message}`);
+      });
+    }
+
+    // If a WhatsApp payload was supplied, dispatch it in background via Evolution API
+    if (dto.whatsappNotification && dto.whatsappNotification.phone && dto.whatsappNotification.text) {
+      void this.whatsAppService.sendWhatsApp(
+        dto.whatsappNotification.phone,
+        dto.whatsappNotification.text,
+      ).catch((err) => {
+        this.logger.error(`Failed to send notification WhatsApp: ${err.message}`);
       });
     }
 
@@ -92,5 +108,10 @@ export class NotificationsService {
   // Helper expose email service
   getEmailService(): EmailService {
     return this.emailService;
+  }
+
+  // Helper expose whatsapp service
+  getWhatsAppService(): WhatsAppService {
+    return this.whatsAppService;
   }
 }
