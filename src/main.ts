@@ -80,13 +80,16 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const primaryPort = Number(process.env.PORT) || 3000;
+  // Railway routes public traffic to port 3000
+  const primaryPort = 3000;
   await app.listen(primaryPort, '0.0.0.0');
   diagLog(`PRIMARY_LISTENING | port=${primaryPort} | host=0.0.0.0`);
   console.log(`🚀 Barter API primary running on 0.0.0.0:${primaryPort}`);
 
-  // Multi-port binding to support any Railway proxy configuration (3000, 3005, 3100, 8080)
-  const fallbackPorts = [3000, 3005, 3100, 8080].filter((p) => p !== primaryPort);
+  // Multi-port binding to support any other port (3100, 3005, 8080, process.env.PORT)
+  const fallbackPorts = [3100, 3005, 8080, Number(process.env.PORT)].filter(
+    (p, idx, arr) => p && p !== primaryPort && arr.indexOf(p) === idx,
+  );
   for (const p of fallbackPorts) {
     try {
       const server = http.createServer(expressApp);
@@ -101,6 +104,7 @@ async function bootstrap() {
     }
   }
 }
+
 
 bootstrap().catch((err) => {
   console.error('BOOTSTRAP ERROR:', err);
