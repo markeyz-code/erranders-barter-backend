@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import * as http from 'http';
 import { AppModule } from './app.module';
 
 function diagLog(msg: string) {
@@ -47,7 +48,12 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // Root health endpoints without prefix (Railway, Docker, ALB health checkers)
+  // Root health endpoints without prefix (Railway, Docker, ALB health checkers)
   const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.use((req: any, _res: any, next: any) => {
+    diagLog(`REQ | ${req.method} ${req.url} | Host=${req.headers.host}`);
+    next();
+  });
   expressApp.get('/', (_req: any, res: any) =>
     res.status(200).json({ status: 'ok', service: 'barter-backend-api', version: '1.0.0' }),
   );
@@ -74,12 +80,28 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const port = process.env.PORT || 3005;
-  await app.listen(port, '0.0.0.0');
-  diagLog(`APP_LISTENING | port=${port} | host=0.0.0.0`);
-  console.log(`🚀 Barter API running on 0.0.0.0:${port}`);
-  console.log(`📚 Swagger docs at http://localhost:${port}/api/docs`);
+  const primaryPort = Number(process.env.PORT) || 3000;
+  await app.listen(primaryPort, '0.0.0.0');
+  diagLog(`PRIMARY_LISTENING | port=${primaryPort} | host=0.0.0.0`);
+  console.log(`🚀 Barter API primary running on 0.0.0.0:${primaryPort}`);
+
+  // Multi-port binding to support any Railway proxy configuration (3000, 3005, 3100, 8080)
+  const fallbackPorts = [3000, 3005, 3100, 8080].filter((p) => p !== primaryPort);
+  for (const p of fallbackPorts) {
+    try {
+      const server = http.createServer(expressApp);
+      server.listen(p, '0.0.0.0', () => {
+        diagLog(`EXTRA_LISTENING | port=${p}`);
+      });
+      server.on('error', (err: any) => {
+        diagLog(`EXTRA_PORT_ERR | port=${p} | err=${err.message}`);
+      });
+    } catch (err: any) {
+      diagLog(`EXTRA_PORT_CATCH | port=${p} | err=${err.message}`);
+    }
+  }
 }
+
 bootstrap().catch((err) => {
   console.error('BOOTSTRAP ERROR:', err);
   diagLog(`BOOTSTRAP_ERROR: ${String(err?.stack || err)}`);
