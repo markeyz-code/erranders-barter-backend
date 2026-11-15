@@ -47,6 +47,28 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api/v1');
 
+  // A missing required field is the client's mistake, not a server fault. Mongoose throws a
+  // ValidationError, which Nest reports as 500 unless it is mapped.
+  app.useGlobalFilters({
+    catch(exception: any, host: any) {
+      const res = host.switchToHttp().getResponse();
+      const first = exception?.errors ? Object.values(exception.errors)[0] : null;
+      const field = (first as any)?.path;
+      const message = (first as any)?.message || exception?.message || 'Bad request';
+
+      if (exception?.name === 'ValidationError' || exception?.name === 'CastError') {
+        res.status(400).json({ statusCode: 400, message, field, error: 'Bad Request' });
+        return;
+      }
+      const status = exception?.status || exception?.statusCode || 500;
+      res.status(status).json({
+        statusCode: status,
+        message: exception?.response?.message || message,
+        error: exception?.response?.error || (status === 500 ? 'Internal Server Error' : 'Error'),
+      });
+    },
+  } as any);
+
   // Root health endpoints without prefix (Railway, Docker, ALB health checkers)
   // Root health endpoints without prefix (Railway, Docker, ALB health checkers)
   const expressApp = app.getHttpAdapter().getInstance();
