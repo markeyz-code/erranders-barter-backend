@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Setting } from '../settings/schemas/setting.schema';
 
 export interface EscrowWhatsAppTemplateData {
   sellerName?: string;
@@ -32,7 +36,12 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   private static readonly DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━';
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    // Resolved at call time: ItemsModule already imports this module, so a static dependency would cycle.
+    private readonly moduleRef: ModuleRef,
+    @InjectModel(Setting.name) private readonly settingModel: Model<any>,
+  ) {}
 
   /**
    * Format phone number to E.164 standard (e.g., +2348012345678)
@@ -329,6 +338,94 @@ ${WhatsAppService.DIVIDER}
     return this.sendWhatsApp(clientPhone, message);
   }
 
+  /**
+   * Ask Evolution for the picture attached to a message.
+   *
+   * Returns a data URL so it can be uploaded to Cloudinary the same way a browser upload would be. Any
+   * failure returns null: a listing without a photo is still a listing, so this never blocks ingestion.
+   */
+  async fetchMediaDataUrl(item: any): Promise<string | null> {
+    const evoUrl = this.configService.get<string>('WHATSAPP_EVOLUTION_API_URL')?.replace(/\/$/, '');
+    const evoKey = this.configService.get<string>('WHATSAPP_EVOLUTION_API_KEY');
+    const evoInstance = this.configService.get<string>('WHATSAPP_EVOLUTION_INSTANCE');
+    if (!evoUrl || !evoKey || !evoInstance) return null;
+
+    try {
+      const response = await fetch(`${evoUrl}/chat/getBase64FromMediaMessage/${evoInstance}`, {
+        method: 'POST',
+        headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: item, convertToMp4: false }),
+      });
+      const body: any = await response.json().catch(() => ({}));
+      const base64 = body?.base64 || body?.data?.base64;
+      const mime = body?.mimetype || body?.data?.mimetype || item?.message?.imageMessage?.mimetype || 'image/jpeg';
+      if (!base64) return null;
+      return base64.startsWith('data:') ? base64 : `data:${mime};base64,${base64}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * A message in one of the feed groups.
+   *
+   * Only the configured groups are read, so the bot never scrapes unrelated conversations. When something is
+   * missing — a price, or an account for that number — it says so in the group rather than staying silent.
+   */
+  private async ingestGroupPost(item: any, groupJid: string) {
+    const groupJids = await this.feedGroupJids();
+    if (!groupJids.includes(groupJid)) return;
+
+    const key = item?.key || {};
+    const message = item?.message || {};
+    const caption = String(
+      message?.imageMessage?.caption || message?.videoMessage?.caption || message?.conversation || message?.extendedTextMessage?.text || '',
+    ).trim();
+    const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
+    if (!caption) return;
+
+    const sender = String(key.participant || key.remoteJid || '').replace(/@.*$/, '');
+    const media = hasPhoto ? await this.fetchMediaDataUrl(item) : null;
+
+    const { ItemsService } = require('../items/items.service');
+    const items = this.moduleRef.get(ItemsService, { strict: false });
+    if (!items) return;
+
+    const result = await items.ingestFromWhatsApp({ phone: sender, text: caption, mediaDataUrl: media });
+
+    if (result?.created) {
+      await this.sendWhatsApp(
+        groupJid,
+        `✅ *Listed on Decluttered*\n${WhatsAppService.DIVIDER}\n📦 *${result.item.title}*\n💰 ₦${Number(result.item.price).toLocaleString()}\n\n🔗 ${result.url}\n\nThe seller can edit or remove it in the app.`,
+      );
+      return;
+    }
+
+    if (result?.reason === 'no-account') {
+      await this.sendWhatsApp(
+        groupJid,
+        `To list this on Decluttered, sign up with this number so buyers can reach you: ${process.env.FRONTEND_URL || 'https://decluttered.erranders.org'}/signup`,
+      );
+    } else if (result?.reason === 'no-price') {
+      await this.sendWhatsApp(groupJid, 'Add a price to the caption and I will list it on Decluttered. For example: "Standing fan, 12,000".');
+    }
+  }
+
+  private async feedGroupJids(): Promise<string[]> {
+    try {
+      const perCampus: any = await this.settingModel.findOne({ key: 'declutter_feed_groups' }).lean();
+      const groups = Array.isArray(perCampus?.value) ? perCampus.value : [];
+      const jids = groups.map((g: any) => String(g.jid)).filter(Boolean);
+      if (jids.length) return jids;
+
+      const single: any = await this.settingModel.findOne({ key: 'declutter_feed_group' }).lean();
+      if (single?.value?.jid) return [String(single.value.jid)];
+    } catch {
+      // fall through to the environment
+    }
+    return process.env.DECLUTTER_FEED_GROUP_JID ? [process.env.DECLUTTER_FEED_GROUP_JID] : [];
+  }
+
   // ─── Evolution Webhook Handler ─────────────────────────────────────────────
 
   async handleEvolutionWebhook(payload: any, headers?: any): Promise<{ success: boolean; event?: string }> {
@@ -345,8 +442,14 @@ ${WhatsAppService.DIVIDER}
         if (!key || key.fromMe === true) continue; // Skip bot's own outgoing messages
 
         const remoteJid = String(key.remoteJid || '');
-        if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.includes('status@broadcast')) {
-          continue; // Skip group chats and broadcast updates
+        if (!remoteJid || remoteJid.includes('status@broadcast')) continue;
+
+        if (remoteJid.endsWith('@g.us')) {
+          // A post in a campus feed group becomes a listing, when it has a price and the sender has an account.
+          await this.ingestGroupPost(item, remoteJid).catch((e) =>
+            this.logger.warn(`Group ingestion failed: ${e?.message || e}`),
+          );
+          continue;
         }
 
         const fromNumber = remoteJid.replace(/@.*$/, '');

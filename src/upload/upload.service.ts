@@ -21,6 +21,20 @@ export class UploadService {
     });
   }
 
+  /** Upload a data URL, which is what WhatsApp media arrives as. */
+  async uploadDataUrl(dataUrl: string, type: UploadResourceType = 'image', folder?: string): Promise<{ url: string; publicId: string }> {
+    return new Promise((resolve, reject) => {
+      cloudinary.uploader.upload(
+        dataUrl,
+        { resource_type: type === 'audio' ? 'video' : type, folder: folder || FOLDER_BY_TYPE[type] || 'barter/images' },
+        (error: any, result: any) => {
+          if (error || !result?.secure_url) reject(error || new Error('Upload failed'));
+          else resolve({ url: result.secure_url, publicId: result.public_id });
+        },
+      );
+    });
+  }
+
   async uploadFile(
     file: Express.Multer.File,
     type: UploadResourceType = 'image',

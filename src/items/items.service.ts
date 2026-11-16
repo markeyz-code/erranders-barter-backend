@@ -7,6 +7,7 @@ import { Offer, OfferStatus } from '../offers/schemas/offer.schema';
 import { User } from '../users/schemas/user.schema';
 import { Service } from '../services/schemas/service.schema';
 import { Setting } from '../settings/schemas/setting.schema';
+import { UploadService } from '../upload/upload.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 // Fields the owner may change on their own listing. sellerId/isPromoted are deliberately not
@@ -36,8 +37,83 @@ export class ItemsService {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Service.name) private serviceModel: Model<Service>,
     @InjectModel(Setting.name) private readonly settingModel: Model<Setting>,
+    private readonly uploadService: UploadService,
     private readonly notificationsService: NotificationsService,
   ) {}
+
+  /**
+   * Turn a message in a campus feed group into a listing.
+   *
+   * The photo and the caption are the listing: students already post "3 in 1 fan, 26,000" with a picture to
+   * their hostel group, and asking them to type it all again is why nothing gets listed. This reads the price
+   * from the caption, matches the sender's number to an account, and publishes.
+   *
+   * It refuses rather than guesses: no price, no account, or no text at all returns a reason so the bot can
+   * tell the person exactly what is missing.
+   */
+  async ingestFromWhatsApp(input: { phone: string; text?: string; mediaDataUrl?: string | null }) {
+    const digits = String(input.phone || '').replace(/\D/g, '').slice(-10);
+    if (!digits) return { created: false, reason: 'no-sender' };
+
+    // Match on the last ten digits, so +234 901 962 7749 and 0901 962 7749 are the same person.
+    const users = await this.userModel.find({ whatsappNumber: { $ne: null } }).select('whatsappNumber firstName university hostel').lean();
+    const seller: any = users.find((u: any) => String(u.whatsappNumber || '').replace(/\D/g, '').slice(-10) === digits);
+    if (!seller) return { created: false, reason: 'no-account' };
+
+    const caption = String(input.text || '').trim();
+    const price = this.priceFromText(caption);
+    if (!price) return { created: false, reason: 'no-price' };
+
+    const title = this.titleFromText(caption, price);
+    if (!title) return { created: false, reason: 'no-title' };
+
+    let images: string[] = [];
+    if (input.mediaDataUrl) {
+      try {
+        const uploaded = await this.uploadService.uploadDataUrl(input.mediaDataUrl, 'image');
+        if (uploaded?.url) images = [uploaded.url];
+      } catch {
+        // A listing without its photo still beats no listing.
+      }
+    }
+
+    const item = await this.itemModel.create({
+      sellerId: seller._id,
+      title,
+      description: caption,
+      price,
+      type: 'sell',
+      location: seller.hostel || seller.university || 'Campus',
+      images,
+      tags: ['whatsapp'],
+      status: 'active',
+    });
+
+    return { created: true, item, sellerName: seller.firstName, url: `${process.env.STOREFRONT_URL || 'https://decluttered.erranders.org'}/item/${(item as any)._id}` };
+  }
+
+  /** The last money-looking number in the caption, with k as thousands. */
+  private priceFromText(text: string): number | null {
+    const matches = [...text.matchAll(/(?:₦|N|NGN)?\s?(\d{1,3}(?:[,\s]\d{3})+|\d+(?:\.\d+)?)\s?(k|K)?\b/g)];
+    if (!matches.length) return null;
+    const last = matches[matches.length - 1];
+    const raw = Number(String(last[1]).replace(/[,\s]/g, ''));
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    const value = last[2] ? raw * 1000 : raw;
+    // A price under ₦100 is almost certainly a quantity or a size, not money.
+    return value >= 100 ? Math.round(value) : null;
+  }
+
+  /** The caption minus the price, first line, trimmed to something that fits a card. */
+  private titleFromText(text: string, price: number): string {
+    const cleaned = text
+      .replace(/₦?\s?[\d,]+(\.\d+)?\s?k?/gi, (m) => (Number(String(m).replace(/[^0-9.]/g, '')) ? '' : m))
+      .replace(/\s+/g, ' ')
+      .trim();
+    const firstLine = (cleaned.split(/[\n•|]/)[0] || '').trim();
+    const title = firstLine || text.split('\n')[0] || 'Item for sale';
+    return title.slice(0, 80);
+  }
 
   async create(createItemDto: any, userId: string): Promise<Item> {
     const newItem = new this.itemModel({ ...createItemDto, sellerId: userId });

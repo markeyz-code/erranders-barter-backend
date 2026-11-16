@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Notification, NotificationSchema } from './schemas/notification.schema';
+import { Setting, SettingSchema } from '../settings/schemas/setting.schema';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { WebhooksController } from './webhooks.controller';
@@ -11,6 +12,7 @@ import { WhatsAppService } from './whatsapp.service';
 @Module({
   imports: [
     MongooseModule.forFeature([
+      { name: Setting.name, schema: SettingSchema },
       { name: Notification.name, schema: NotificationSchema },
     ]),
   ],
