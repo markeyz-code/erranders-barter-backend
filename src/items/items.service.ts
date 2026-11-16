@@ -454,8 +454,16 @@ export class ItemsService {
   }
 
   async findAll(query: any): Promise<Item[]> {
-    // A listing deactivated by an admin disappears from the public marketplace feed.
-    const filter: any = { status: ItemStatus.ACTIVE, isActive: { $ne: false } };
+    /**
+     * `status` used to be ignored entirely, so a request for sold items returned active ones and every
+     * new listing appeared in the "Just Sold Out" rail. An explicit status is honoured now; without one
+     * the feed is active listings, and anything deactivated by an admin stays out.
+     */
+    const requestedStatus = String(query.status || '').toLowerCase();
+    const knownStatus = Object.values(ItemStatus).includes(requestedStatus as ItemStatus);
+    const filter: any = knownStatus
+      ? { status: requestedStatus, isActive: { $ne: false } }
+      : { status: ItemStatus.ACTIVE, isActive: { $ne: false } };
     if (query.location) filter.location = new RegExp(String(query.location).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     if (query.type) filter.type = query.type;
     if (query.category) filter.category = query.category;
