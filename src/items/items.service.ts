@@ -53,7 +53,7 @@ export class ItemsService {
         price: (saved as any).price,
         type: (saved as any).type,
         url: `${process.env.STOREFRONT_URL || 'https://decluttered.erranders.org'}/item/${(saved as any)._id}`,
-        groupJid: await this.feedGroupJid(),
+        groupJid: await this.feedGroupJid(seller?.university),
       });
     } catch (e: any) {
       // A failed notification must not fail the listing, but it should be visible in the logs.
@@ -69,10 +69,22 @@ export class ItemsService {
    * Stored in settings so a new group is a database write rather than a redeploy; the environment variable
    * remains as a fallback for a fresh install.
    */
-  private async feedGroupJid(): Promise<string | undefined> {
+  private async feedGroupJid(campus?: string): Promise<string | undefined> {
     try {
-      const setting = await this.settingModel.findOne({ key: 'declutter_feed_group' }).lean();
-      const jid = (setting as any)?.value?.jid;
+      // One group per campus, so a listing is posted where someone can actually collect it.
+      const perCampus = await this.settingModel.findOne({ key: 'declutter_feed_groups' }).lean();
+      const groups: any[] = Array.isArray((perCampus as any)?.value) ? (perCampus as any).value : [];
+      const key = String(campus || '').trim().toUpperCase();
+
+      const exact = key ? groups.find((g) => String(g.campus).toUpperCase() === key) : null;
+      if (exact?.jid) return exact.jid;
+
+      // A seller outside the known campuses still needs somewhere to go.
+      const general = groups.find((g) => String(g.campus).toUpperCase() === 'ALL');
+      if (general?.jid) return general.jid;
+
+      const single = await this.settingModel.findOne({ key: 'declutter_feed_group' }).lean();
+      const jid = (single as any)?.value?.jid;
       if (jid) return jid;
     } catch {
       // fall through to the environment
