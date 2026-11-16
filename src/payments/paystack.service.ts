@@ -320,6 +320,29 @@ export class PaystackService {
   }
 
   /** Verifies a transfer by the reference this backend generated. */
+  /**
+   * Confirm a payment by the reference Paystack hands back.
+   *
+   * The browser can lie about? No — the browser can simply be closed, so the callback page asks us, and we
+   * ask Paystack. A reference that was never paid returns status false and nothing is marked as paid.
+   */
+  async verifyTransaction(reference: string) {
+    const secret = this.secretKey;
+    const res = await fetch(`${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: { Authorization: `Bearer ${secret}` },
+    });
+    const body: any = await res.json().catch(() => ({}));
+    const data = body?.data ?? {};
+    return {
+      found: Boolean(body?.status),
+      status: data?.status,
+      amount: Number(data?.amount || 0) / 100,
+      currency: data?.currency,
+      reference: data?.reference,
+      paidAt: data?.paid_at,
+    };
+  }
+
   async verifyTransfer(reference: string): Promise<PaystackTransferVerification> {
     const data = await this.request<PaystackRawTransfer>(
       'GET',

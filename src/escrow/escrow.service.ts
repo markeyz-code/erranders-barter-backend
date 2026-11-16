@@ -1,3 +1,4 @@
+import { PaystackService } from '../payments/paystack.service';
 import {
   ConflictException,
   Injectable,
@@ -25,6 +26,7 @@ export class EscrowService {
     @InjectModel(Transaction.name) private txModel: Model<Transaction>,
     @InjectModel(Item.name) private itemModel: Model<Item>,
     @InjectModel(User.name) private userModel: Model<User>,
+    private readonly paystackService: PaystackService,
     private settingsService: SettingsService,
     private usersService: UsersService,
     private logisticsService: LogisticsService,
@@ -789,6 +791,40 @@ export class EscrowService {
     }
 
     return savedTx;
+  }
+
+  /**
+   * Settle the escrow a Paystack reference belongs to.
+   *
+   * The callback page cannot be trusted to say "paid" — it is a browser — so the reference is checked with
+   * Paystack and only then applied. The webhook remains the primary path; this exists so someone who lands
+   * on the callback page sees the truth immediately rather than waiting for a webhook that may be delayed.
+   */
+  async settleByReference(buyerId: string, reference: string) {
+    if (!reference) throw new BadRequestException('No payment reference was given');
+
+    const tx: any = await this.txModel.findOne({ paymentReference: reference, buyerId }).lean();
+    if (!tx) throw new NotFoundException('No escrow payment matches that reference');
+
+    const verified = await this.paystackService.verifyTransaction(reference);
+    if (!verified.found || verified.status !== 'success') {
+      throw new BadRequestException('Paystack has not confirmed that payment');
+    }
+
+    // Already settled by the webhook: report it rather than settling twice.
+    if (tx.status === TransactionStatus.HELD_IN_ESCROW) {
+      return { settled: true, alreadySettled: true, transactionId: String(tx._id), status: tx.status };
+    }
+
+    await this.confirmPayment(String(tx._id), buyerId, reference);
+    const updated: any = await this.txModel.findById(tx._id).lean();
+    return {
+      settled: true,
+      alreadySettled: false,
+      transactionId: String(tx._id),
+      status: updated?.status,
+      amount: verified.amount,
+    };
   }
 
   async confirmPayment(txId: string, buyerId: string, paymentReference: string, negotiatedFee?: number) {

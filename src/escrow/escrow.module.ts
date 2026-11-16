@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EscrowService } from './escrow.service';
+import { PaystackService } from '../payments/paystack.service';
+import { ConfigModule } from '@nestjs/config';
 import { EscrowController } from './escrow.controller';
 import { EscrowWebhookController } from './escrow-webhook.controller';
 import { AdminEscrowController } from './admin-escrow.controller';
@@ -23,7 +25,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
     LogisticsModule
   ],
   controllers: [EscrowController, EscrowWebhookController, AdminEscrowController],
-  providers: [EscrowService],
+  providers: [EscrowService, PaystackService],
   exports: [EscrowService],
 })
 export class EscrowModule {}

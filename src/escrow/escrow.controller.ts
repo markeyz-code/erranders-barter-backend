@@ -1,4 +1,4 @@
-import { Controller, Post, Patch, Get, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Patch, Get, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { EscrowService } from './escrow.service';
@@ -26,6 +26,12 @@ export class EscrowController {
   @ApiOperation({ summary: 'Confirm Paystack payment after negotiation concluded' })
   async confirmPayment(@Param('id') id: string, @Body() body: { paymentReference: string; negotiatedFee?: number }, @Req() req) {
     return this.escrowService.confirmPayment(id, req.user.userId, body.paymentReference, body.negotiatedFee);
+  }
+
+  @Get('payment-callback')
+  @ApiOperation({ summary: 'Verify a Paystack reference and settle the escrow it belongs to' })
+  async paymentCallback(@Req() req: any, @Query('reference') reference: string) {
+    return this.escrowService.settleByReference(String(req.user.userId), reference);
   }
 
   @Get('my-transactions')
