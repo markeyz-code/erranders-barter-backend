@@ -8,11 +8,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { timingSafeEqual } from 'crypto';
 import { ApiTags } from '@nestjs/swagger';
 
 import { WithdrawalSettlementService } from './withdrawal-settlement.service';
-import { EscrowService } from '../escrow/escrow.service';
 
 /**
  * Inbound payout outcomes forwarded from Erranders.
@@ -38,7 +38,9 @@ export class ErrandersWebhookController {
   constructor(
     private readonly config: ConfigService,
     private readonly settlement: WithdrawalSettlementService,
-    private readonly escrowService: EscrowService,
+    // Resolved at call time: adding EscrowService to the module graph here crashed boot with an unresolved
+    // dependency, and this controller only needs it for the charge branch.
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -79,7 +81,9 @@ export class ErrandersWebhookController {
      */
     if (event === 'charge.success' && reference.startsWith('ESC-')) {
       try {
-        const settled = await this.escrowService.settleByPaystackReference(reference);
+        const { EscrowService } = require('../escrow/escrow.service');
+        const escrow = this.moduleRef.get(EscrowService, { strict: false });
+        const settled = await escrow.settleByPaystackReference(reference);
         return { received: true, settled };
       } catch (e: any) {
         this.logger.warn(`Charge webhook for ${reference} could not settle: ${e?.message || e}`);
