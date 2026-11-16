@@ -12,6 +12,7 @@ import { timingSafeEqual } from 'crypto';
 import { ApiTags } from '@nestjs/swagger';
 
 import { WithdrawalSettlementService } from './withdrawal-settlement.service';
+import { EscrowService } from '../escrow/escrow.service';
 
 /**
  * Inbound payout outcomes forwarded from Erranders.
@@ -37,6 +38,7 @@ export class ErrandersWebhookController {
   constructor(
     private readonly config: ConfigService,
     private readonly settlement: WithdrawalSettlementService,
+    private readonly escrowService: EscrowService,
   ) {}
 
   /**
@@ -68,6 +70,22 @@ export class ErrandersWebhookController {
     const event = body?.event || '';
     const reference = body?.data?.reference || '';
     if (!reference) throw new BadRequestException('data.reference is required');
+
+    /*
+     * A Declutter escrow payment settles here too.
+     *
+     * Paystack allows one webhook per account, and it points at the Erranders backend, so charge events for this
+     * marketplace are forwarded from there. The reference decides: escrow references start with ESC-.
+     */
+    if (event === 'charge.success' && reference.startsWith('ESC-')) {
+      try {
+        const settled = await this.escrowService.settleByPaystackReference(reference);
+        return { received: true, settled };
+      } catch (e: any) {
+        this.logger.warn(`Charge webhook for ${reference} could not settle: ${e?.message || e}`);
+        return { received: true, settled: false, reason: e?.message };
+      }
+    }
 
     // Accept either Paystack's event name or a bare outcome.
     const normalised = event.replace(/^transfer\./, '');

@@ -801,6 +801,29 @@ export class EscrowService {
    * Paystack and only then applied. The webhook remains the primary path; this exists so someone who lands
    * on the callback page sees the truth immediately rather than waiting for a webhook that may be delayed.
    */
+  /**
+   * Settle by reference, with no buyer attached.
+   *
+   * Called from the webhook that the Erranders backend forwards, where the browser is not involved at all. The
+   * reference is still verified with Paystack before anything is marked paid.
+   */
+  async settleByPaystackReference(reference: string) {
+    const tx: any = await this.txModel.findOne({ paymentReference: reference }).lean();
+    if (!tx) throw new NotFoundException('No escrow payment matches that reference');
+
+    const verified = await this.paystackService.verifyTransaction(reference);
+    if (!verified.found || verified.status !== 'success') {
+      throw new BadRequestException('Paystack has not confirmed that payment');
+    }
+
+    if (tx.status === TransactionStatus.HELD_IN_ESCROW) {
+      return { settled: true, alreadySettled: true, transactionId: String(tx._id) };
+    }
+
+    await this.confirmPayment(String(tx._id), String(tx.buyerId), reference);
+    return { settled: true, alreadySettled: false, transactionId: String(tx._id) };
+  }
+
   async settleByReference(buyerId: string, reference: string) {
     if (!reference) throw new BadRequestException('No payment reference was given');
 
