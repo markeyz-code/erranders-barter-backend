@@ -9,6 +9,7 @@ import { Service } from '../services/schemas/service.schema';
 import { Setting } from '../settings/schemas/setting.schema';
 import { UploadService } from '../upload/upload.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { storefrontUrl } from '../common/storefront';
 
 // Fields the owner may change on their own listing. sellerId/isPromoted are deliberately not
 // here — those are platform-controlled.
@@ -90,7 +91,7 @@ export class ItemsService {
       status: 'active',
     });
 
-    return { created: true, item, sellerName: seller.firstName, url: `${process.env.STOREFRONT_URL || 'https://decluttered.erranders.org'}/item/${(item as any)._id}` };
+    return { created: true, item, sellerName: seller.firstName, url: `${storefrontUrl()}/item/${(item as any)._id}` };
   }
 
   /** The last money-looking number in the caption, with k as thousands. */
@@ -129,7 +130,7 @@ export class ItemsService {
         title: (saved as any).title,
         price: (saved as any).price,
         type: (saved as any).type,
-        url: `${process.env.STOREFRONT_URL || 'https://decluttered.erranders.org'}/item/${(saved as any)._id}`,
+        url: `${storefrontUrl()}/item/${(saved as any)._id}`,
         groupJid: await this.feedGroupJid(seller?.university),
       });
     } catch (e: any) {

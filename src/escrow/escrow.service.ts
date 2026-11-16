@@ -17,6 +17,7 @@ import { LogisticsService } from '../logistics/logistics.service';
 import { Item, ItemStatus } from '../items/schemas/item.schema';
 import { User } from '../users/schemas/user.schema';
 import { NotificationsService } from '../notifications/notifications.service';
+import { storefrontUrl } from '../common/storefront';
 
 @Injectable()
 export class EscrowService {
@@ -980,7 +981,8 @@ export class EscrowService {
     if (total <= 0) throw new BadRequestException('There is nothing to pay on this trade');
 
     const reference = `ESC-${String(tx._id).slice(-10).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-    const callbackBase = (process.env.STOREFRONT_URL || 'https://decluttered.erranders.org').replace(/\/$/, '');
+    // Paystack returns the buyer here, so it must be the real storefront.
+    const callbackBase = storefrontUrl();
 
     const init = await this.paystackService.initializeTransaction({
       email: buyer.email,

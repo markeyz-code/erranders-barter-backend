@@ -32,6 +32,7 @@ import { UpdateOpeningDto } from './dto/update-opening.dto';
 import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto';
 import { PAGE_TEMPLATES, defaultTemplateFor, materialiseTemplate, verticalFor } from './page-templates';
 import { resolveVertical } from './verticals';
+import { storefrontUrl } from '../common/storefront';
 
 /**
  * Owner-settable profile fields, and the complete list: anything not named here cannot be
@@ -269,7 +270,7 @@ export class BusinessesService {
       const adminUrl =
         process.env.BUSINESS_ADMIN_URL || 'https://business.erranders.org';
       const storefrontBase =
-        process.env.STOREFRONT_URL || 'https://decluttered.erranders.org';
+        storefrontUrl();
 
       await this.emailService.sendBusinessAdminInvite(owner.email, {
         businessName: business.name,
