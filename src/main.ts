@@ -3,7 +3,6 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import * as http from 'http';
 import { AppModule } from './app.module';
 
 function diagLog(msg: string) {
@@ -102,29 +101,19 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  // Railway routes public traffic to port 3000
-  const primaryPort = 3000;
-  await app.listen(primaryPort, '0.0.0.0');
-  diagLog(`PRIMARY_LISTENING | port=${primaryPort} | host=0.0.0.0`);
-  console.log(`🚀 Barter API primary running on 0.0.0.0:${primaryPort}`);
+  /**
+   * One listener, on the port Railway routes to.
+   *
+   * This used to bind 3000 primary and then open extra plain http servers on 3100, 3005, 8080 and PORT.
+   * Every one of them served the same Express app, so the REST API answered on all of them — but the
+   * WebSocket server is attached only to the listener Nest owns. Railway routes to PORT, which was one of
+   * the extras, so every socket handshake reached a server with no socket.io and answered 404.
+   */
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port, '0.0.0.0');
+  diagLog(`LISTENING | port=${port} | host=0.0.0.0`);
+  console.log(`🚀 Barter API running on 0.0.0.0:${port} (http + websockets)`);
 
-  // Multi-port binding to support any other port (3100, 3005, 8080, process.env.PORT)
-  const fallbackPorts = [3100, 3005, 8080, Number(process.env.PORT)].filter(
-    (p, idx, arr) => p && p !== primaryPort && arr.indexOf(p) === idx,
-  );
-  for (const p of fallbackPorts) {
-    try {
-      const server = http.createServer(expressApp);
-      server.listen(p, '0.0.0.0', () => {
-        diagLog(`EXTRA_LISTENING | port=${p}`);
-      });
-      server.on('error', (err: any) => {
-        diagLog(`EXTRA_PORT_ERR | port=${p} | err=${err.message}`);
-      });
-    } catch (err: any) {
-      diagLog(`EXTRA_PORT_CATCH | port=${p} | err=${err.message}`);
-    }
-  }
 }
 
 
