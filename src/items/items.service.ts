@@ -52,7 +52,7 @@ export class ItemsService {
         title: (saved as any).title,
         price: (saved as any).price,
         type: (saved as any).type,
-        url: `https://declutter.erranders.org/item/${(saved as any)._id}`,
+        url: `${process.env.STOREFRONT_URL || 'https://decluttered.erranders.org'}/item/${(saved as any)._id}`,
         groupJid: await this.feedGroupJid(),
       });
     } catch (e: any) {
