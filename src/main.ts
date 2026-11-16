@@ -1,3 +1,4 @@
+import * as http from 'http';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
@@ -102,17 +103,52 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   /**
-   * One listener, on the port Railway routes to.
+   * Listen on PORT, and keep the fallback ports alive with sockets attached.
    *
-   * This used to bind 3000 primary and then open extra plain http servers on 3100, 3005, 8080 and PORT.
-   * Every one of them served the same Express app, so the REST API answered on all of them — but the
-   * WebSocket server is attached only to the listener Nest owns. Railway routes to PORT, which was one of
-   * the extras, so every socket handshake reached a server with no socket.io and answered 404.
+   * Railway routes to whichever port it expects; the previous code bound 3000 plus extras, and the extras had no
+   * socket.io, which is why every handshake 404ed. Binding only one port fixed the socket but took the service
+   * down when Railway routed somewhere else. Both problems have one solution: every listener, every protocol.
    */
-  const port = Number(process.env.PORT) || 3000;
-  await app.listen(port, '0.0.0.0');
-  diagLog(`LISTENING | port=${port} | host=0.0.0.0`);
-  console.log(`🚀 Barter API running on 0.0.0.0:${port} (http + websockets)`);
+  const primaryPort = Number(process.env.PORT) || 3000;
+  await app.listen(primaryPort, '0.0.0.0');
+  diagLog(`PRIMARY_LISTENING | port=${primaryPort} | host=0.0.0.0`);
+  console.log(`🚀 Barter API running on 0.0.0.0:${primaryPort} (http + websockets)`);
+
+  /**
+   * The extra ports forward everything to the port Nest owns.
+   *
+   * Serving the same Express app on them was not enough: socket.io answers /socket.io/ itself, so polling
+   * handshakes on a fallback port still 404ed. A one-line proxy makes every port behave identically, so it no
+   * longer matters which one the platform routes to.
+   */
+  const nestServer = app.getHttpServer();
+  const extraPorts = [3000, 3100, 3005, 8080].filter(
+    (p, idx, arr) => p !== primaryPort && arr.indexOf(p) === idx,
+  );
+  for (const p of extraPorts) {
+    try {
+      const server = http.createServer((req, res) => {
+        const proxy = http.request(
+          { host: '127.0.0.1', port: primaryPort, path: req.url, method: req.method, headers: req.headers },
+          (upstream) => {
+            res.writeHead(upstream.statusCode || 502, upstream.headers);
+            upstream.pipe(res);
+          },
+        );
+        proxy.on('error', () => {
+          res.writeHead(502);
+          res.end('Upstream unavailable');
+        });
+        req.pipe(proxy);
+      });
+
+      server.on('upgrade', (req: any, socket: any, head: any) => nestServer.emit('upgrade', req, socket, head));
+      server.listen(p, '0.0.0.0', () => diagLog(`EXTRA_LISTENING | port=${p}`));
+      server.on('error', (err: any) => diagLog(`EXTRA_PORT_ERR | port=${p} | err=${err.message}`));
+    } catch (err: any) {
+      diagLog(`EXTRA_PORT_CATCH | port=${p} | err=${err.message}`);
+    }
+  }
 
 }
 
