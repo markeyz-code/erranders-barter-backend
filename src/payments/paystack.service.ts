@@ -326,6 +326,44 @@ export class PaystackService {
    * The browser can lie about? No — the browser can simply be closed, so the callback page asks us, and we
    * ask Paystack. A reference that was never paid returns status false and nothing is marked as paid.
    */
+  /**
+   * Start a payment on the server.
+   *
+   * The browser never sees the secret key and never builds the charge: it asks us for an authorisation URL and
+   * goes there. Amount and reference are decided here, so a tampered page cannot pay ₦1 for a ₦6,150 order.
+   */
+  async initializeTransaction(input: {
+    email: string;
+    amountKobo: number;
+    reference: string;
+    callbackUrl: string;
+    metadata?: Record<string, any>;
+  }) {
+    const secret = this.secretKey;
+    const res = await fetch(`${this.baseUrl}/transaction/initialize`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: input.email,
+        amount: Math.round(input.amountKobo),
+        reference: input.reference,
+        callback_url: input.callbackUrl,
+        metadata: input.metadata || {},
+      }),
+    });
+
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || !body?.status) {
+      throw new Error(body?.message || `Paystack refused the payment (HTTP ${res.status})`);
+    }
+
+    return {
+      authorizationUrl: body.data?.authorization_url as string,
+      accessCode: body.data?.access_code as string,
+      reference: body.data?.reference as string,
+    };
+  }
+
   async verifyTransaction(reference: string) {
     const secret = this.secretKey;
     const res = await fetch(`${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {

@@ -64,6 +64,12 @@ export class EscrowController {
     return this.escrowService.findAll();
   }
 
+  @Post(':id/initialize-payment')
+  @ApiOperation({ summary: 'Start the Paystack charge for a concluded escrow (server side)' })
+  async initializePayment(@Param('id') id: string, @Req() req: any) {
+    return this.escrowService.initializePayment(id, String(req.user.userId));
+  }
+
   @Patch(':id/accept-negotiation')
   @ApiOperation({ summary: 'Accept a delivery negotiation from an Errander' })
   async acceptNegotiation(@Param('id') id: string, @Req() req) {

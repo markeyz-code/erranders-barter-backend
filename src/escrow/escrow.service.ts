@@ -953,6 +953,58 @@ export class EscrowService {
     };
   }
 
+  /**
+   * Start the charge for a concluded escrow, server side.
+   *
+   * The amount comes from the transaction, not from the browser: item price plus the agreed delivery fee plus the
+   * escrow fee. Paystack returns an authorisation URL and the browser simply goes there.
+   */
+  async initializePayment(txId: string, buyerId: string) {
+    const tx: any = await this.txModel.findById(txId);
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (String(tx.buyerId) !== String(buyerId)) throw new BadRequestException('Only the buyer can pay for this trade');
+    if (tx.status === 'held_in_escrow') throw new BadRequestException('This trade is already paid');
+
+    const buyer: any = await this.userModel.findById(buyerId).select('email firstName').lean();
+    if (!buyer?.email) throw new BadRequestException('Your account has no email for a receipt');
+
+    const itemPrice = Number(tx.itemPrice) || 0;
+    const deliveryFee = Number(tx.deliveryFee) || 0;
+
+    const escrowFeePercVal = await this.settingsService.getSetting('escrow_fee_percentage');
+    const escrowFeePerc = escrowFeePercVal && Number(escrowFeePercVal) > 0 ? Number(escrowFeePercVal) : 2.5;
+    const baseTotal = itemPrice + deliveryFee;
+    const escrowFee = itemPrice > 0 ? Math.max(100, Math.round((baseTotal * escrowFeePerc) / 100)) : 0;
+    const total = itemPrice + deliveryFee + escrowFee;
+
+    if (total <= 0) throw new BadRequestException('There is nothing to pay on this trade');
+
+    const reference = `ESC-${String(tx._id).slice(-10).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    const callbackBase = (process.env.STOREFRONT_URL || 'https://decluttered.erranders.org').replace(/\/$/, '');
+
+    const init = await this.paystackService.initializeTransaction({
+      email: buyer.email,
+      amountKobo: Math.round(total * 100),
+      reference,
+      callbackUrl: `${callbackBase}/payment/callback`,
+      metadata: { escrowTransactionId: String(tx._id), itemId: String(tx.itemId || '') },
+    });
+
+    tx.paymentReference = init.reference || reference;
+    tx.escrowFee = escrowFee;
+    tx.deliveryFee = deliveryFee;
+    tx.amount = total;
+    tx.status = TransactionStatus.PENDING_NEGOTIATION;
+    await tx.save();
+
+    return {
+      authorizationUrl: init.authorizationUrl,
+      reference: tx.paymentReference,
+      amount: total,
+      breakdown: { itemPrice, deliveryFee, escrowFee },
+    };
+  }
+
   async acceptNegotiation(txId: string, buyerId: string) {
     const tx = await this.txModel.findById(txId);
     if (!tx) throw new NotFoundException('Transaction not found');
