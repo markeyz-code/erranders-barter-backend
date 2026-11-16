@@ -611,6 +611,10 @@ export class ItemsService {
       filter.$or = [{ title: rx }, { description: rx }, { category: rx }];
     }
     if (query.budget) filter.price = { $lte: Number(query.budget) };
+    // Everything one student has liked, so their profile can show it.
+    if (query.likedBy && Types.ObjectId.isValid(String(query.likedBy))) {
+      filter.likes = String(query.likedBy);
+    }
     if (query.sellerId && query.sellerId !== 'undefined' && Types.ObjectId.isValid(query.sellerId)) {
       filter.sellerId = query.sellerId;
     }
