@@ -597,7 +597,19 @@ export class ItemsService {
     if (query.category) filter.category = query.category;
     if (query.tag) filter.tags = query.tag;
     if (query.declutter === 'true' || query.declutter === true) filter.tags = 'declutter';
-    if (query.search || query.q) filter.$text = { $search: query.search || query.q };
+    /*
+     * Search by substring, not by text index.
+     *
+     * $text was used here, but the items collection has no text index: every search returned nothing, which is why
+     * the search box looked broken. A case-insensitive match on title, description and category works without any
+     * index and answers the question people actually ask ("do you have a fan?").
+     */
+    const searchTerm = String(query.search || query.q || '').trim();
+    if (searchTerm) {
+      const safe = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(safe, 'i');
+      filter.$or = [{ title: rx }, { description: rx }, { category: rx }];
+    }
     if (query.budget) filter.price = { $lte: Number(query.budget) };
     if (query.sellerId && query.sellerId !== 'undefined' && Types.ObjectId.isValid(query.sellerId)) {
       filter.sellerId = query.sellerId;
@@ -609,8 +621,9 @@ export class ItemsService {
       dbQuery = dbQuery.sort({ isPromoted: -1, price: 1 });
     } else if (query.sort === 'price_desc') {
       dbQuery = dbQuery.sort({ isPromoted: -1, price: -1 });
-    } else if (query.search || query.q) {
-      dbQuery = dbQuery.sort({ score: { $meta: 'textScore' }, isPromoted: -1, createdAt: -1 });
+    } else if (searchTerm) {
+      // No text score to sort by; newest first is the honest ordering.
+      dbQuery = dbQuery.sort({ isPromoted: -1, createdAt: -1 });
     } else {
       dbQuery = dbQuery.sort({ isPromoted: -1, createdAt: -1 });
     }
