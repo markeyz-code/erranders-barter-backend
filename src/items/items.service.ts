@@ -39,7 +39,26 @@ export class ItemsService {
 
   async create(createItemDto: any, userId: string): Promise<Item> {
     const newItem = new this.itemModel({ ...createItemDto, sellerId: userId });
-    return newItem.save();
+    const saved = await newItem.save();
+
+    // "Did it publish?" is the first question a seller has; answer it on WhatsApp and, when a campus
+    // group is configured, post the listing there too.
+    try {
+      const seller: any = await this.userModel.findById(userId);
+      await this.notificationsService.getWhatsAppService().notifyListingPublished(seller?.whatsappNumber, {
+        sellerName: seller?.firstName,
+        title: (saved as any).title,
+        price: (saved as any).price,
+        type: (saved as any).type,
+        url: `https://declutter.erranders.org/item/${(saved as any)._id}`,
+        groupJid: process.env.DECLUTTER_FEED_GROUP_JID,
+      });
+    } catch (e: any) {
+      // A failed notification must not fail the listing, but it should be visible in the logs.
+      console.warn('[items] listing-published WhatsApp failed:', e?.message || e);
+    }
+
+    return saved;
   }
 
   async createDeclutterBatch(

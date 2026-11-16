@@ -209,6 +209,83 @@ ${WhatsAppService.DIVIDER}
   }
 
   /**
+   * 4b. Offer accepted by the receiver (sent to the person who proposed it).
+   *
+   * The proposer's next move is a confirmation, so the message says that rather than "accepted" and
+   * leaving them to guess whether the swap is agreed.
+   */
+  async notifyOfferAccepted(proposerPhone: string, data: { proposerName?: string; targetItemTitle?: string; receiverName?: string; offeredItemTitle?: string }): Promise<boolean> {
+    const proposer = data.proposerName || 'Student';
+    const receiver = data.receiverName || 'the seller';
+
+    const message = `✅ *ERRANDERS BARTER: OFFER ACCEPTED*
+${WhatsAppService.DIVIDER}
+👋 *${proposer}*, ${receiver} accepted your offer.
+
+📦 *"${data.targetItemTitle || 'the item'}"*${data.offeredItemTitle ? `\n🔄 In exchange for *"${data.offeredItemTitle}"*` : ''}
+
+👉 Open the app to confirm the swap and arrange handover. The swap is not final until you both agree.`;
+
+    return this.sendWhatsApp(proposerPhone, message);
+  }
+
+  /**
+   * 4c. Offer declined or withdrawn.
+   */
+  async notifyOfferClosed(phone: string, data: { name?: string; targetItemTitle?: string; reason?: string }): Promise<boolean> {
+    const name = data.name || 'Student';
+    const reason = data.reason ? `\n\n_${data.reason}_` : '';
+
+    const message = `❌ *ERRANDERS BARTER: OFFER CLOSED*
+${WhatsAppService.DIVIDER}
+Hi *${name}*, the offer on *"${data.targetItemTitle || 'your item'}"* was declined.${reason}
+
+The item is still listed, so other students can still make an offer.`;
+
+    return this.sendWhatsApp(phone, message);
+  }
+
+  /**
+   * 4d. A listing went live.
+   *
+   * Confirmation to the seller, because "did it publish?" is the question every first-time seller has.
+   * When a group is configured the listing also goes out to the campus feed.
+   */
+  async notifyListingPublished(
+    sellerPhone: string | undefined,
+    data: { sellerName?: string; title: string; price?: number; type?: string; url?: string; imageUrl?: string; groupJid?: string },
+  ): Promise<boolean> {
+    const seller = data.sellerName || 'Student';
+    const isService = data.type === 'service';
+    const priceLine = data.price ? `\n💰 *₦${Number(data.price).toLocaleString()}*` : '';
+
+    let sent = false;
+    if (sellerPhone) {
+      const message = `🎉 *ERRANDERS BARTER: LISTING LIVE*
+${WhatsAppService.DIVIDER}
+Hi *${seller}*, your ${isService ? 'service' : 'item'} is live on campus.
+
+📦 *"${data.title}"*${priceLine}
+
+Share the link with your hostel group to sell faster.${data.url ? `\n🔗 ${data.url}` : ''}`;
+
+      sent = await this.sendWhatsApp(sellerPhone, message);
+    }
+
+    if (data.groupJid) {
+      const feed = `🆕 *NEW ON CAMPUS*
+${WhatsAppService.DIVIDER}
+📦 *"${data.title}"*${priceLine}
+${isService ? '🛠 Service' : '🏷 For sale'}${data.url ? `\n🔗 ${data.url}` : ''}
+
+${data.url ? 'Tap the link to view and offer.' : 'Open Decluttered to view it.'}`;
+      await this.sendWhatsApp(data.groupJid, feed);
+    }
+
+    return sent;
+  }
+
+  /**
    * 5. New Service Booking (Sent to Service Provider)
    */
   async notifyProviderBooking(providerPhone: string, data: BookingWhatsAppTemplateData): Promise<boolean> {

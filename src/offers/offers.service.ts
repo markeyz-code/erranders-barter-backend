@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Offer, OfferStatus } from './schemas/offer.schema';
@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OffersService {
+  private readonly logger = new Logger(OffersService.name);
   constructor(
     @InjectModel(Offer.name) private offerModel: Model<Offer>,
     @InjectModel(Item.name) private itemModel: Model<Item>,
@@ -142,6 +143,21 @@ export class OffersService {
       offer.receiverHandoverNotes = extraData?.receiverHandoverNotes || '';
       offer.receiverAcceptedAt = new Date();
       const saved = await offer.save();
+
+      // Tell the proposer on WhatsApp as well as in the app; their next step is to confirm.
+      try {
+        const proposerUser: any = await this.userModel.findById(offer.proposerId);
+        const targetItemForWa: any = await this.itemModel.findById(offer.targetItemId);
+        if (proposerUser?.whatsappNumber) {
+          await this.notificationsService.getWhatsAppService().notifyOfferAccepted(proposerUser.whatsappNumber, {
+            proposerName: proposerUser.firstName,
+            receiverName: (await this.userModel.findById(userId))?.firstName,
+            targetItemTitle: targetItemForWa?.title,
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`Offer-accepted WhatsApp failed: ${e?.message || e}`);
+      }
 
       // Dispatch notification to the initiator to review and confirm
       try {
