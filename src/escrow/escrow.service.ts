@@ -151,6 +151,27 @@ export class EscrowService {
           });
         }
 
+        /*
+         * And in the group where they posted it. A seller who listed from WhatsApp is looking at that group, not
+         * at their email; a DM can sit unread while the group message cannot be missed.
+         */
+        try {
+          const groupsSetting: any = await this.settingsService.getSetting('declutter_feed_groups');
+          const groups = Array.isArray(groupsSetting) ? groupsSetting : [];
+          const campus = String((seller as any)?.university || '').trim().toUpperCase();
+          const group = groups.find((g: any) => String(g.campus).toUpperCase() === campus)
+            || groups.find((g: any) => String(g.campus).toUpperCase() === 'ALL');
+
+          if (group?.jid) {
+            await this.notificationsService.getWhatsAppService().sendWhatsApp(
+              String(group.jid),
+              `🛒 *CLAIMED ON DECLUTTERED*\n\n📦 *${item.title}*\n👤 ${sellerName}'s item has a buyer.\n💰 ₦${Number(savedTx.amount || 0).toLocaleString()} held safely in escrow.\n\nThe seller has been messaged to arrange handover.`,
+            );
+          }
+        } catch (e: any) {
+          this.logger.warn(`Could not post the claim to the feed group: ${e?.message || e}`);
+        }
+
         const buyerPhone = (buyer as any)?.whatsappNumber || (buyer as any)?.phone;
         if (buyerPhone) {
           await this.notificationsService.getWhatsAppService().notifyBuyerEscrowPayment(buyerPhone, {
