@@ -957,7 +957,17 @@ export class EscrowService {
     const tx = await this.txModel.findById(txId);
     if (!tx) throw new NotFoundException('Transaction not found');
     if (tx.buyerId !== buyerId) throw new BadRequestException('Only the buyer can accept negotiations');
-    if (!tx.erranderBidId && !tx.proposedDeliveryFee) throw new BadRequestException('No negotiation exists for this transaction');
+    /*
+     * A dispatched errand with a fee is a negotiation, even when the bid id never reached us.
+     *
+     * The marketplace tells this backend about a bid by calling /escrow/webhook/negotiation. If that call fails —
+     * as it did for hours while this service was returning 502 — the transaction keeps its order id and fee but
+     * loses the bid id, and the buyer is then told "No negotiation exists" and cannot pay for a delivery a rider has
+     * already offered. Requiring all three, rather than any one, blocks a real order.
+     */
+    if (!tx.erranderBidId && !tx.proposedDeliveryFee && !tx.erranderOrderId) {
+      throw new BadRequestException('No negotiation exists for this transaction');
+    }
 
     if (tx.erranderBidId && tx.erranderOrderId) {
       try {
@@ -983,6 +993,7 @@ export class EscrowService {
     }
 
     const agreedFee = tx.proposedDeliveryFee || tx.deliveryFee || 0;
+    if (agreedFee <= 0) throw new BadRequestException('There is no agreed delivery fee to accept');
     tx.deliveryFee = agreedFee;
     tx.proposedDeliveryFee = 0; // cleared because concluded
     tx.erranderBidId = null;
