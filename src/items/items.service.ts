@@ -21,6 +21,7 @@ const ITEM_UPDATABLE_FIELDS = [
   'status',
   'location',
   'category',
+  'condition',
   'images',
   'videos',
   'video360',
