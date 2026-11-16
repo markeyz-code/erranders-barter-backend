@@ -6,6 +6,7 @@ import { Transaction, TransactionStatus } from '../escrow/schemas/transaction.sc
 import { Offer, OfferStatus } from '../offers/schemas/offer.schema';
 import { User } from '../users/schemas/user.schema';
 import { Service } from '../services/schemas/service.schema';
+import { Setting } from '../settings/schemas/setting.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 
 // Fields the owner may change on their own listing. sellerId/isPromoted are deliberately not
@@ -34,6 +35,7 @@ export class ItemsService {
     @InjectModel(Offer.name) private offerModel: Model<Offer>,
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Service.name) private serviceModel: Model<Service>,
+    @InjectModel(Setting.name) private readonly settingModel: Model<Setting>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -51,7 +53,7 @@ export class ItemsService {
         price: (saved as any).price,
         type: (saved as any).type,
         url: `https://declutter.erranders.org/item/${(saved as any)._id}`,
-        groupJid: process.env.DECLUTTER_FEED_GROUP_JID,
+        groupJid: await this.feedGroupJid(),
       });
     } catch (e: any) {
       // A failed notification must not fail the listing, but it should be visible in the logs.
@@ -59,6 +61,23 @@ export class ItemsService {
     }
 
     return saved;
+  }
+
+  /**
+   * Which group the campus feed posts to.
+   *
+   * Stored in settings so a new group is a database write rather than a redeploy; the environment variable
+   * remains as a fallback for a fresh install.
+   */
+  private async feedGroupJid(): Promise<string | undefined> {
+    try {
+      const setting = await this.settingModel.findOne({ key: 'declutter_feed_group' }).lean();
+      const jid = (setting as any)?.value?.jid;
+      if (jid) return jid;
+    } catch {
+      // fall through to the environment
+    }
+    return process.env.DECLUTTER_FEED_GROUP_JID || undefined;
   }
 
   async createDeclutterBatch(

@@ -8,6 +8,7 @@ import { Transaction, TransactionSchema } from '../escrow/schemas/transaction.sc
 import { Offer, OfferSchema } from '../offers/schemas/offer.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Service, ServiceSchema } from '../services/schemas/service.schema';
+import { Setting, SettingSchema } from '../settings/schemas/setting.schema';
 
 import { ReelsController } from '../reels/reels.controller';
 
@@ -19,6 +20,7 @@ import { ReelsController } from '../reels/reels.controller';
       { name: Offer.name, schema: OfferSchema },
       { name: User.name, schema: UserSchema },
       { name: Service.name, schema: ServiceSchema },
+      { name: Setting.name, schema: SettingSchema },
     ])
   ],
   controllers: [ItemsController, ReelsController, AdminItemsController],
