@@ -635,8 +635,34 @@ export class ItemsService {
     return item;
   }
 
-  async findMyListings(userId: string): Promise<Item[]> {
-    return this.itemModel.find({ sellerId: userId }).sort({ createdAt: -1 }).exec();
+  async findMyListings(userId: string) {
+    const items = await this.itemModel.find({ sellerId: userId }).sort({ createdAt: -1 }).lean();
+
+    // Whether each listing can be deleted, decided here so the page and the route agree.
+    const counts = await this.offerModel.aggregate([
+      {
+        $match: {
+          $or: [{ targetItemId: { $in: items.map((i) => String(i._id)) } }, { offeredItemId: { $in: items.map((i) => String(i._id)) } }],
+          status: { $in: [OfferStatus.PENDING, OfferStatus.ACCEPTED_BY_RECEIVER, OfferStatus.COUNTERED] },
+        },
+      },
+      { $group: { _id: '$targetItemId', open: { $sum: 1 } } },
+    ]);
+    const openByItem = new Map(counts.map((c: any) => [String(c._id), c.open]));
+
+    return items.map((item: any) => {
+      const openOffers = openByItem.get(String(item._id)) || 0;
+      let deleteBlockedReason = '';
+      if ([ItemStatus.SOLD, ItemStatus.COMPLETED].includes(item.status)) {
+        deleteBlockedReason = 'Sold. Its sale is part of your history.';
+      } else if (item.status === ItemStatus.PENDING) {
+        deleteBlockedReason = 'In an accepted trade.';
+      } else if (openOffers > 0) {
+        deleteBlockedReason = openOffers === 1 ? 'An offer is waiting on you.' : `${openOffers} offers are waiting on you.`;
+      }
+
+      return { ...item, openOffers, canDelete: !deleteBlockedReason, deleteBlockedReason };
+    });
   }
 
   /**
@@ -802,12 +828,34 @@ export class ItemsService {
       throw new BadRequestException('This item is part of an active escrow trade and cannot be deleted. Release or dispute the transaction first.');
     }
 
+    // A listing that has found its buyer is part of the record. Deleting it would erase what someone paid for.
+    if ([ItemStatus.SOLD, ItemStatus.COMPLETED].includes(item.status)) {
+      throw new BadRequestException(
+        'This item has already been sold and cannot be deleted. Its sale is part of your history.',
+      );
+    }
+
     // offers.service marks both items as pending once an offer is accepted.
     if (item.status === ItemStatus.PENDING) {
       throw new BadRequestException('This item is part of an accepted trade and cannot be deleted.');
     }
 
-    // Any other pending offers would point at a listing that no longer exists.
+    /**
+     * Under negotiation means somebody is waiting on an answer. Deleting the listing mid-conversation leaves
+     * their offer pointing at nothing, so it waits until offers are declined or accepted.
+     */
+    const openOffers = await this.offerModel.countDocuments({
+      $or: [{ targetItemId: id }, { offeredItemId: id }],
+      status: { $in: [OfferStatus.PENDING, OfferStatus.ACCEPTED_BY_RECEIVER, OfferStatus.COUNTERED] },
+    });
+    if (openOffers > 0) {
+      const label = openOffers === 1 ? 'an open offer' : `${openOffers} open offers`;
+      throw new BadRequestException(
+        `This item has ${label} on it. Accept or decline ${openOffers === 1 ? 'it' : 'them'} before deleting.`,
+      );
+    }
+
+    // Older, already-closed offers are tidied so nothing points at a listing that no longer exists.
     const declined = await this.offerModel.updateMany(
       { status: OfferStatus.PENDING, $or: [{ targetItemId: id }, { offeredItemId: id }] },
       { status: OfferStatus.DECLINED },
