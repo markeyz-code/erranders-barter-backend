@@ -58,16 +58,19 @@ export class ItemsService {
     if (!digits) return { created: false, reason: 'no-sender' };
 
     const caption = String(input.text || '').trim();
-    const price = this.priceFromText(caption);
-    const title = price ? this.titleFromText(caption, price) : (caption.split('\n')[0] || '').trim().slice(0, 80);
+    if (!caption) return { created: false, reason: 'no-caption' };
 
-    // Match on the last ten digits, so +234 901 962 7749 and 0901 962 7749 are the same person.
+    // 1. MUST have an identifiable price. If there is no price, this is normal chat/questions, NOT a listing.
+    const price = this.priceFromText(caption);
+    if (!price) return { created: false, reason: 'no-price' };
+
+    const title = this.titleFromText(caption, price);
+    if (!title) return { created: false, reason: 'no-title' };
+
+    // 2. Check if the sender is registered on Decluttered.
     const users = await this.userModel.find({ whatsappNumber: { $ne: null } }).select('whatsappNumber firstName university hostel').lean();
     const seller: any = users.find((u: any) => String(u.whatsappNumber || '').replace(/\D/g, '').slice(-10) === digits);
     if (!seller) return { created: false, reason: 'no-account', title, price, phone: digits };
-
-    if (!price) return { created: false, reason: 'no-price' };
-    if (!title) return { created: false, reason: 'no-title' };
 
     let images: string[] = [];
     if (input.mediaDataUrl) {
@@ -94,16 +97,43 @@ export class ItemsService {
     return { created: true, item, sellerName: seller.firstName, url: `${storefrontUrl()}/item/${(item as any)._id}` };
   }
 
-  /** The last money-looking number in the caption, with k as thousands. */
-  private priceFromText(text: string): number | null {
-    const matches = [...text.matchAll(/(?:₦|N|NGN)?\s?(\d{1,3}(?:[,\s]\d{3})+|\d+(?:\.\d+)?)\s?(k|K)?\b/g)];
-    if (!matches.length) return null;
-    const last = matches[matches.length - 1];
-    const raw = Number(String(last[1]).replace(/[,\s]/g, ''));
-    if (!Number.isFinite(raw) || raw <= 0) return null;
-    const value = last[2] ? raw * 1000 : raw;
-    // A price under ₦100 is almost certainly a quantity or a size, not money.
-    return value >= 100 ? Math.round(value) : null;
+  /** The money-looking number in the caption, with k as thousands. */
+  public priceFromText(text: string): number | null {
+    if (!text) return null;
+    const trimmed = text.trim();
+
+    // If it's a URL or conversational link, ignore
+    if (/^https?:\/\//i.test(trimmed)) return null;
+
+    // Strip out phone numbers and long numeric IDs so they are never mistaken for prices
+    const cleaned = trimmed
+      .replace(/(?:\+?234|0)[789]\d{9}\b/g, '')
+      .replace(/\b\d{10,20}\b/g, '');
+
+    // Pattern A: Currency symbol/prefix (₦, N, NGN) or 'k' suffix, e.g. "15k", "₦15,000", "N20000"
+    const currencyMatches = [...cleaned.matchAll(/(?:₦|N|NGN)\s?(\d{1,3}(?:[,\s]\d{3})*|\d+)\s?(k|K)?\b|(\d{1,3}(?:[,\s]\d{3})*|\d+)\s?(k|K)\b/gi)];
+    if (currencyMatches.length) {
+      const last = currencyMatches[currencyMatches.length - 1];
+      const numStr = last[1] || last[3] || '';
+      const hasK = Boolean(last[2] || last[4]);
+      const raw = Number(String(numStr).replace(/[,\s]/g, ''));
+      if (Number.isFinite(raw) && raw > 0) {
+        const val = hasK ? raw * 1000 : raw;
+        if (val >= 100 && val <= 10000000) return Math.round(val);
+      }
+    }
+
+    // Pattern B: Explicit formatted comma amount like "15,000" or "25,000"
+    const commaMatches = [...cleaned.matchAll(/\b(\d{1,3}(?:,\d{3})+)\b/g)];
+    if (commaMatches.length) {
+      const last = commaMatches[commaMatches.length - 1];
+      const raw = Number(String(last[1]).replace(/[,\s]/g, ''));
+      if (Number.isFinite(raw) && raw >= 500 && raw <= 10000000) {
+        return Math.round(raw);
+      }
+    }
+
+    return null;
   }
 
   /** The caption minus the price, first line, trimmed to something that fits a card. */

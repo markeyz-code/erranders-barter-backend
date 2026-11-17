@@ -35,6 +35,8 @@ export interface OfferWhatsAppTemplateData {
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
   private static readonly DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━';
+  private readonly groupParticipantCache = new Map<string, { fetchedAt: number; map: Map<string, string> }>();
+  private readonly recentlyPromptedNumbers = new Map<string, number>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -373,11 +375,53 @@ ${WhatsAppService.DIVIDER}
     }
   }
 
+  private async resolveParticipantPhone(groupJid: string, rawSender: string, alt?: string): Promise<string> {
+    if (alt && !alt.includes('@lid')) {
+      return alt.replace(/@.*$/, '').replace(/:\d+$/, '');
+    }
+    if (!rawSender.includes('@lid')) {
+      return rawSender.replace(/@.*$/, '').replace(/:\d+$/, '');
+    }
+
+    const cleanLid = rawSender.replace(/@.*$/, '').replace(/:\d+$/, '');
+    const now = Date.now();
+    let cached = this.groupParticipantCache.get(groupJid);
+
+    if (!cached || now - cached.fetchedAt > 5 * 60 * 1000) {
+      const evoUrl = this.configService.get<string>('WHATSAPP_EVOLUTION_API_URL')?.replace(/\/$/, '');
+      const evoKey = this.configService.get<string>('WHATSAPP_EVOLUTION_API_KEY');
+      const evoInstance = this.configService.get<string>('WHATSAPP_EVOLUTION_INSTANCE') || 'Erranders';
+      const lidMap = new Map<string, string>();
+
+      try {
+        const res = await fetch(`${evoUrl}/group/findGroupInfos/${evoInstance}?groupJid=${encodeURIComponent(groupJid)}`, {
+          headers: { apikey: evoKey || '' },
+          signal: AbortSignal.timeout(6000),
+        });
+        const data: any = await res.json().catch(() => ({}));
+        const participants = Array.isArray(data?.participants) ? data.participants : [];
+        for (const p of participants) {
+          const lid = String(p.id || '').replace(/@.*$/, '');
+          const phone = String(p.phoneNumber || '').replace(/@.*$/, '');
+          if (lid && phone) lidMap.set(lid, phone);
+        }
+      } catch (e: any) {
+        this.logger.warn(`Could not resolve group participants for LID resolution: ${e?.message || e}`);
+      }
+      cached = { fetchedAt: now, map: lidMap };
+      this.groupParticipantCache.set(groupJid, cached);
+    }
+
+    return cached.map.get(cleanLid) || cleanLid;
+  }
+
   /**
    * A message in one of the feed groups.
    *
-   * Only the configured groups are read, so the bot never scrapes unrelated conversations. When something is
-   * missing — a price, or an account for that number — it says so in the group rather than staying silent.
+   * Only the configured groups are read. The bot strictly ignores:
+   * 1. Quoted replies or chat conversations between group members.
+   * 2. Messages without an explicit, valid item price.
+   * 3. Senders who were already prompted within the last 10 minutes.
    */
   private async ingestGroupPost(item: any, groupJid: string) {
     const groupJids = await this.feedGroupJids();
@@ -385,21 +429,51 @@ ${WhatsAppService.DIVIDER}
 
     const key = item?.key || {};
     const message = item?.message || {};
-    const caption = String(
-      message?.imageMessage?.caption || message?.videoMessage?.caption || message?.conversation || message?.extendedTextMessage?.text || '',
-    ).trim();
-    const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
-    if (!caption) return;
 
-    // Clean device ID or suffix (e.g., 2348020729245:12@s.whatsapp.net -> 2348020729245)
-    const sender = String(key.participant || key.remoteJid || '')
-      .replace(/@.*$/, '')
-      .replace(/:\d+$/, '');
-    const media = hasPhoto ? await this.fetchMediaDataUrl(item) : null;
+    // 1. NEVER intercept replies or quotes (conversations in the group)
+    if (
+      message?.extendedTextMessage?.contextInfo?.quotedMessage ||
+      item?.contextInfo?.quotedMessage ||
+      key.fromMe === true
+    ) {
+      return;
+    }
+
+    const caption = String(
+      message?.imageMessage?.caption ||
+      message?.videoMessage?.caption ||
+      message?.conversation ||
+      message?.extendedTextMessage?.text ||
+      '',
+    ).trim();
+    if (!caption) return;
 
     const { ItemsService } = require('../items/items.service');
     const items = this.moduleRef.get(ItemsService, { strict: false });
     if (!items) return;
+
+    // 2. MUST have an explicit price. If no price is found, this is general chat/questions — IGNORE!
+    const price = items.priceFromText(caption);
+    if (!price) {
+      return;
+    }
+
+    // 3. Resolve sender phone number (resolving WhatsApp privacy LIDs to actual phone numbers)
+    const rawSender = String(key.participant || key.remoteJid || '');
+    const altSender = String(key.participantAlt || item.participantAlt || '');
+    const sender = await this.resolveParticipantPhone(groupJid, rawSender, altSender);
+    const senderDigits = sender.replace(/\D/g, '');
+    if (!senderDigits || senderDigits.length < 10) return;
+
+    // 4. Rate-limit signup prompts per phone number (cooldown of 10 minutes)
+    const now = Date.now();
+    const lastPrompted = this.recentlyPromptedNumbers.get(senderDigits);
+    if (lastPrompted && now - lastPrompted < 10 * 60 * 1000) {
+      return;
+    }
+
+    const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
+    const media = hasPhoto ? await this.fetchMediaDataUrl(item) : null;
 
     const result = await items.ingestFromWhatsApp({ phone: sender, text: caption, mediaDataUrl: media });
 
@@ -411,13 +485,15 @@ ${WhatsAppService.DIVIDER}
       return;
     }
 
-    const senderDigits = sender.replace(/\D/g, '');
     const senderJid = `${senderDigits}@s.whatsapp.net`;
     const senderTag = `@${senderDigits}`;
 
-    if (result?.reason === 'no-account') {
+    // 5. Prompt ONLY when an unregistered user posts an item with an actual price
+    if (result?.reason === 'no-account' && result.price) {
+      this.recentlyPromptedNumbers.set(senderDigits, now);
+
       const itemTitle = result.title ? `*${result.title}*` : 'your item';
-      const itemPrice = result.price ? ` for *₦${Number(result.price).toLocaleString()}*` : '';
+      const itemPrice = ` for *₦${Number(result.price).toLocaleString()}*`;
 
       const promptMsg =
         `👋 Hi ${senderTag}!\n\n` +
@@ -434,12 +510,6 @@ ${WhatsAppService.DIVIDER}
         `I will automatically detect it and publish it directly to the website with 100% Escrow Protection so campus buyers can order it safely! 🚀`;
 
       await this.sendWhatsApp(groupJid, promptMsg, { mentioned: [senderJid] });
-    } else if (result?.reason === 'no-price' && (hasPhoto || /sale|selling|declutter|kettle|fan|bunk|bed|fridge/i.test(caption))) {
-      await this.sendWhatsApp(
-        groupJid,
-        `👋 Hi ${senderTag}! Please add a price to your post (for example: "15k" or "₦15,000") and I will automatically list it on Decluttered!`,
-        { mentioned: [senderJid] },
-      );
     }
   }
 
