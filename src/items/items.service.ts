@@ -57,16 +57,16 @@ export class ItemsService {
     const digits = String(input.phone || '').replace(/\D/g, '').slice(-10);
     if (!digits) return { created: false, reason: 'no-sender' };
 
+    const caption = String(input.text || '').trim();
+    const price = this.priceFromText(caption);
+    const title = price ? this.titleFromText(caption, price) : (caption.split('\n')[0] || '').trim().slice(0, 80);
+
     // Match on the last ten digits, so +234 901 962 7749 and 0901 962 7749 are the same person.
     const users = await this.userModel.find({ whatsappNumber: { $ne: null } }).select('whatsappNumber firstName university hostel').lean();
     const seller: any = users.find((u: any) => String(u.whatsappNumber || '').replace(/\D/g, '').slice(-10) === digits);
-    if (!seller) return { created: false, reason: 'no-account' };
+    if (!seller) return { created: false, reason: 'no-account', title, price, phone: digits };
 
-    const caption = String(input.text || '').trim();
-    const price = this.priceFromText(caption);
     if (!price) return { created: false, reason: 'no-price' };
-
-    const title = this.titleFromText(caption, price);
     if (!title) return { created: false, reason: 'no-title' };
 
     let images: string[] = [];

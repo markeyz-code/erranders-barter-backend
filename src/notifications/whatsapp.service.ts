@@ -76,13 +76,15 @@ export class WhatsAppService {
   /**
    * Primary sender via Evolution API
    */
-  async sendWhatsApp(phone: string, text: string): Promise<boolean> {
+  async sendWhatsApp(phone: string, text: string, options?: { mentioned?: string[] }): Promise<boolean> {
     if (!phone || !text) return false;
-    const formattedPhone = this.formatPhoneNumber(phone);
+
+    const isGroup = phone.includes('@g.us');
+    const targetNumber = isGroup ? phone.trim() : this.formatPhoneNumber(phone).replace(/\D/g, '');
 
     const evoUrl = this.configService.get<string>('WHATSAPP_EVOLUTION_API_URL')?.replace(/\/$/, '');
     const evoKey = this.configService.get<string>('WHATSAPP_EVOLUTION_API_KEY');
-    const evoInstance = this.configService.get<string>('WHATSAPP_EVOLUTION_INSTANCE') || 'ojaly';
+    const evoInstance = this.configService.get<string>('WHATSAPP_EVOLUTION_INSTANCE') || 'Erranders';
 
     try {
       if (!evoUrl || !evoKey) {
@@ -90,17 +92,22 @@ export class WhatsAppService {
         return false;
       }
 
-      const digitsOnly = formattedPhone.replace(/\D/g, '');
+      const payload: any = {
+        number: targetNumber,
+        text,
+      };
+
+      if (options?.mentioned?.length) {
+        payload.mentioned = options.mentioned;
+      }
+
       const response = await fetch(`${evoUrl}/message/sendText/${evoInstance}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           apikey: evoKey,
         },
-        body: JSON.stringify({
-          number: digitsOnly,
-          text,
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15000),
       });
 
@@ -110,10 +117,10 @@ export class WhatsAppService {
       }
 
       const msgId = data?.key?.id || data?.id || 'ok';
-      this.logger.log(`✅ WhatsApp sent to ${digitsOnly}. Message ID: ${msgId}`);
+      this.logger.log(`✅ WhatsApp sent to ${targetNumber}. Message ID: ${msgId}`);
       return true;
     } catch (error: any) {
-      this.logger.error(`❌ WhatsApp Failed to ${formattedPhone}: ${error.message}`);
+      this.logger.error(`❌ WhatsApp Failed to ${phone}: ${error.message}`);
       return false;
     }
   }
@@ -384,7 +391,10 @@ ${WhatsAppService.DIVIDER}
     const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
     if (!caption) return;
 
-    const sender = String(key.participant || key.remoteJid || '').replace(/@.*$/, '');
+    // Clean device ID or suffix (e.g., 2348020729245:12@s.whatsapp.net -> 2348020729245)
+    const sender = String(key.participant || key.remoteJid || '')
+      .replace(/@.*$/, '')
+      .replace(/:\d+$/, '');
     const media = hasPhoto ? await this.fetchMediaDataUrl(item) : null;
 
     const { ItemsService } = require('../items/items.service');
@@ -401,13 +411,35 @@ ${WhatsAppService.DIVIDER}
       return;
     }
 
+    const senderDigits = sender.replace(/\D/g, '');
+    const senderJid = `${senderDigits}@s.whatsapp.net`;
+    const senderTag = `@${senderDigits}`;
+
     if (result?.reason === 'no-account') {
+      const itemTitle = result.title ? `*${result.title}*` : 'your item';
+      const itemPrice = result.price ? ` for *₦${Number(result.price).toLocaleString()}*` : '';
+
+      const promptMsg =
+        `👋 Hi ${senderTag}!\n\n` +
+        `I noticed you want to sell ${itemTitle}${itemPrice}, but this WhatsApp number is not registered on *Erranders Declutter* yet.\n\n` +
+        `📝 *How to get this uploaded to the website:*\n` +
+        `1️⃣ *Create your free account* (takes 30 seconds):\n` +
+        `👉 https://decluttered.erranders.org/signup?phone=${senderDigits.slice(-10)}\n` +
+        `*(Make sure to sign up with this WhatsApp number!)*\n\n` +
+        `2️⃣ *Post anytime with price & photo:*\n` +
+        `Whenever you share an item in this group with:\n` +
+        `• 📸 Photo of the item\n` +
+        `• 🏷️ Name & description\n` +
+        `• 💰 Price (e.g. 15k or ₦15,000)\n\n` +
+        `I will automatically detect it and publish it directly to the website with 100% Escrow Protection so campus buyers can order it safely! 🚀`;
+
+      await this.sendWhatsApp(groupJid, promptMsg, { mentioned: [senderJid] });
+    } else if (result?.reason === 'no-price' && (hasPhoto || /sale|selling|declutter|kettle|fan|bunk|bed|fridge/i.test(caption))) {
       await this.sendWhatsApp(
         groupJid,
-        `To list this on Decluttered, sign up with this number so buyers can reach you: ${process.env.FRONTEND_URL || 'https://decluttered.erranders.org'}/signup`,
+        `👋 Hi ${senderTag}! Please add a price to your post (for example: "15k" or "₦15,000") and I will automatically list it on Decluttered!`,
+        { mentioned: [senderJid] },
       );
-    } else if (result?.reason === 'no-price') {
-      await this.sendWhatsApp(groupJid, 'Add a price to the caption and I will list it on Decluttered. For example: "Standing fan, 12,000".');
     }
   }
 
