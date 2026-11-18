@@ -452,7 +452,15 @@ ${WhatsAppService.DIVIDER}
     const items = this.moduleRef.get(ItemsService, { strict: false });
     if (!items) return;
 
-    // 2. MUST have an explicit price. If no price is found, this is general chat/questions — IGNORE!
+    const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
+
+    // 2. Read messages carefully and ONLY respond when someone genuinely wants to SELL an item!
+    // Ignore people asking to buy, room swaps, questions, and non-selling messages.
+    if (!items.hasSellingIntent(caption, hasPhoto)) {
+      return;
+    }
+
+    // 3. MUST have an explicit price. If no price is found, this is not a product listing — IGNORE!
     const price = items.priceFromText(caption);
     if (!price) {
       return;
@@ -472,7 +480,6 @@ ${WhatsAppService.DIVIDER}
       return;
     }
 
-    const hasPhoto = Boolean(message?.imageMessage || message?.videoMessage);
     const media = hasPhoto ? await this.fetchMediaDataUrl(item) : null;
 
     const result = await items.ingestFromWhatsApp({ phone: sender, text: caption, mediaDataUrl: media });

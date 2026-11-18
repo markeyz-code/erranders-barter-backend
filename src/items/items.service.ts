@@ -60,6 +60,11 @@ export class ItemsService {
     const caption = String(input.text || '').trim();
     if (!caption) return { created: false, reason: 'no-caption' };
 
+    // 0. MUST genuinely be an intent to SELL a product. Ignore buyers, questions, and chat.
+    if (!this.hasSellingIntent(caption, Boolean(input.mediaDataUrl))) {
+      return { created: false, reason: 'not-selling' };
+    }
+
     // 1. MUST have an identifiable price. If there is no price, this is normal chat/questions, NOT a listing.
     const price = this.priceFromText(caption);
     if (!price) return { created: false, reason: 'no-price' };
@@ -95,6 +100,68 @@ export class ItemsService {
     });
 
     return { created: true, item, sellerName: seller.firstName, url: `${storefrontUrl()}/item/${(item as any)._id}` };
+  }
+
+  /** Check if the message is genuinely an item being offered for sale, avoiding buyers, room swaps, and chatter. */
+  public hasSellingIntent(text: string, hasPhoto: boolean): boolean {
+    if (!text) return false;
+    const clean = text.trim();
+
+    // 1. Quoted replies, links, or URLs are never a seller listing
+    if (/^https?:\/\//i.test(clean)) return false;
+
+    // 2. Pure questions are buyer/chat inquiries, not a seller listing
+    if (
+      clean.endsWith('?') ||
+      /^(who\s+has|who\s+is\s+selling|who\s+wants|is\s+this|anyone\s+selling|anybody\s+have|does\s+anyone|can\s+i|where\s+are|how\s+much\s+last)\b/i.test(clean)
+    ) {
+      return false;
+    }
+
+    // 3. Buyer search phrases (someone looking to BUY or asking for items)
+    const buyerPatterns = [
+      /\b(looking\s+for|i\s+need|in\s+need\s+of|searching\s+for|wtb|want\s+to\s+buy|wants\s+to\s+buy)\b/i,
+      /\b(who\s+has|who\s+get|who\s+is\s+selling|anybody\s+selling|anyone\s+got)\b/i,
+      /\b(my\s+budget\s+is|budget:?)\b/i,
+      /\b(room\s+swap|swap\s+room|oph\s+wing|hostel\s+allocation|bed\s+space)\b/i,
+    ];
+    if (buyerPatterns.some((pattern) => pattern.test(clean))) {
+      return false;
+    }
+
+    // 4. Strong seller signals:
+    const explicitSellWords = [
+      /\b(for\s+sale|selling|declutter|decluttering|clearance|clearing\s+out)\b/i,
+      /\b(available\s+for\s+sale|available\s+for\s+pickup|available\s+now|still\s+available)\b/i,
+      /\b(restocked|in\s+stock|brand\s+new|fairly\s+used|neatly\s+used|clean\s+condition|good\s+working\s+condition)\b/i,
+      /\b(price:?|asking:?|rate:?|goes\s+for|going\s+for|each)\b/i,
+      /\b(dm\s+to\s+order|dm\s+if\s+interested|serious\s+buyers?\s+only|pick\s+up\s+at)\b/i,
+    ];
+    const hasExplicitSellWord = explicitSellWords.some((pattern) => pattern.test(clean));
+
+    // 5. Common campus items being decluttered:
+    const campusItemWords = [
+      /\b(bunk|bed|mattress|foam|pillow|bedframe)\b/i,
+      /\b(fan|rechargeable\s+fan|standing\s+fan|ceiling\s+fan|ox\s+fan|duravolt)\b/i,
+      /\b(fridge|refrigerator|freezer|cooker|hot\s*plate|gas\s+cylinder|burner)\b/i,
+      /\b(kettle|electric\s+kettle|iron|pressing\s+iron|microwave|blender|pot|pots)\b/i,
+      /\b(table|reading\s+table|chair|reading\s+lamp|lamp|wardrobe|drawer|hanger|mirror)\b/i,
+      /\b(bucket|bailer|carpet|rug|curtain|curtains|shoe\s+rack|storage\s+box)\b/i,
+      /\b(generator|inverter|stabilizer|extension|power\s+bank|clippers)\b/i,
+      /\b(laptop|monitor|screen|mouse|keyboard|charger|sound\s+bar|speaker)\b/i,
+    ];
+    const mentionsCampusItem = campusItemWords.some((pattern) => pattern.test(clean));
+
+    // If a photo is attached with a price and mentions an item or has sell words
+    if (hasPhoto) {
+      if (hasExplicitSellWord || mentionsCampusItem) return true;
+    }
+
+    // If text-only: MUST have an explicit sell word OR mention an item being sold
+    if (hasExplicitSellWord) return true;
+    if (mentionsCampusItem && /\b\d{1,3}(?:[,\s]\d{3})*|\d+\s?(k|K|naira)\b/i.test(clean)) return true;
+
+    return false;
   }
 
   /** The money-looking number in the caption, with k as thousands. */
